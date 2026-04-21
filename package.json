@@ -3,9 +3,7 @@
   "version": "0.0.1",
   "description": "Check if each package in package-lock.json has been released for at least N hours",
   "main": "index.js",
-  "bin": {
-    "minreleaseage": "./bin/minreleaseage.js"
-  },
+  "bin": "./bin/minreleaseage.js",
   "scripts": {
     "test:unit": "node test.js",
     "test:e2e": "node e2e.js",
@@ -20,5 +18,6 @@
   "bugs": {
     "url": "https://github.com/gucchisk/minreleaseage/issues"
   },
-  "homepage": "https://github.com/gucchisk/minreleaseage#readme"
+  "homepage": "https://github.com/gucchisk/minreleaseage#readme",
+  "packageManager": "yarn@4.14.1"
 }

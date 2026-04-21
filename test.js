@@ -8,7 +8,7 @@ const path = require('node:path');
 const https = require('https');
 const { EventEmitter } = require('events');
 
-const { readPackageLock, fetchReleaseDate } = require('./index.js');
+const { readPackageLock, readYarnLock, fetchReleaseDate } = require('./index.js');
 
 // ---------------------------------------------------------------------------
 // ヘルパー
@@ -38,6 +38,19 @@ function writeTempLockfile(lockfileContent) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minreleaseage-test-'));
   const filePath = path.join(tmpDir, 'package-lock.json');
   fs.writeFileSync(filePath, JSON.stringify(lockfileContent), 'utf8');
+  return { filePath, tmpDir };
+}
+
+/**
+ * 指定したファイル名で一時ファイルを作成して、そのパスと一時ディレクトリを返す
+ * @param {string} filename
+ * @param {string} content
+ * @returns {{ filePath: string, tmpDir: string }}
+ */
+function writeTempFile(filename, content) {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minreleaseage-test-'));
+  const filePath = path.join(tmpDir, filename);
+  fs.writeFileSync(filePath, content, 'utf8');
   return { filePath, tmpDir };
 }
 
@@ -249,7 +262,7 @@ describe('readPackageLock', () => {
     assert.ok(packages.length > 0);
     const axios = packages.find((p) => p.name === 'axios');
     assert.ok(axios, 'axios が含まれていること');
-    assert.equal(axios.version, '1.15.1');
+    assert.equal(axios.version, '1.15.2');
   });
 });
 
@@ -369,6 +382,243 @@ describe('fetchReleaseDate', () => {
       () => fetchReleaseDate('some-package', '1.0.0'),
       /Network error fetching some-package: ECONNREFUSED/
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readYarnLock
+// ---------------------------------------------------------------------------
+
+describe('readYarnLock', () => {
+  it('存在しないファイルを指定した場合はエラーをスローする', () => {
+    assert.throws(
+      () => readYarnLock('/nonexistent/yarn.lock'),
+      /yarn.lock not found at:/
+    );
+  });
+
+  // --- Yarn Classic ---
+
+  it('[Classic] 基本的なパッケージを読み込む', () => {
+    const { filePath, tmpDir } = writeTempFile('yarn.lock', [
+      '# yarn lockfile v1',
+      '',
+      'ms@^2.1.1:',
+      '  version "2.1.3"',
+      '  resolved "https://registry.yarnpkg.com/ms/-/ms-2.1.3.tgz"',
+    ].join('\n'));
+    try {
+      const packages = readYarnLock(filePath);
+      assert.equal(packages.length, 1);
+      assert.deepEqual(packages[0], { name: 'ms', version: '2.1.3' });
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  it('[Classic] スコープ付きパッケージを読み込む', () => {
+    const { filePath, tmpDir } = writeTempFile('yarn.lock', [
+      '# yarn lockfile v1',
+      '',
+      '"@scope/pkg@^1.0.0":',
+      '  version "1.2.3"',
+      '  resolved "https://registry.yarnpkg.com/@scope/pkg/-/pkg-1.2.3.tgz"',
+    ].join('\n'));
+    try {
+      const packages = readYarnLock(filePath);
+      assert.equal(packages.length, 1);
+      assert.deepEqual(packages[0], { name: '@scope/pkg', version: '1.2.3' });
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  it('[Classic] 同一descriptor行に複数のrangeが並ぶ場合に1エントリにまとめる', () => {
+    const { filePath, tmpDir } = writeTempFile('yarn.lock', [
+      '# yarn lockfile v1',
+      '',
+      'ms@^2.0.0, ms@^2.1.0, ms@^2.1.1:',
+      '  version "2.1.3"',
+      '  resolved "https://registry.yarnpkg.com/ms/-/ms-2.1.3.tgz"',
+    ].join('\n'));
+    try {
+      const packages = readYarnLock(filePath);
+      assert.equal(packages.length, 1);
+      assert.equal(packages[0].name, 'ms');
+      assert.equal(packages[0].version, '2.1.3');
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  it('[Classic] 同名・同バージョンの重複エントリを1つにまとめる', () => {
+    const { filePath, tmpDir } = writeTempFile('yarn.lock', [
+      '# yarn lockfile v1',
+      '',
+      'ms@^2.1.0:',
+      '  version "2.1.3"',
+      '',
+      'ms@^2.1.1:',
+      '  version "2.1.3"',
+    ].join('\n'));
+    try {
+      const packages = readYarnLock(filePath);
+      assert.equal(packages.length, 1);
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  it('[Classic] 複数の異なるパッケージをすべて読み込む', () => {
+    const { filePath, tmpDir } = writeTempFile('yarn.lock', [
+      '# yarn lockfile v1',
+      '',
+      'ms@^2.1.1:',
+      '  version "2.1.3"',
+      '',
+      'debug@^4.0.0:',
+      '  version "4.3.4"',
+    ].join('\n'));
+    try {
+      const packages = readYarnLock(filePath);
+      assert.equal(packages.length, 2);
+      assert.ok(packages.some((p) => p.name === 'ms' && p.version === '2.1.3'));
+      assert.ok(packages.some((p) => p.name === 'debug' && p.version === '4.3.4'));
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  // --- Yarn Berry ---
+
+  it('[Berry] linkType: hard のパッケージを読み込む', () => {
+    const { filePath, tmpDir } = writeTempFile('yarn.lock', [
+      '__metadata:',
+      '  version: 6',
+      '',
+      '"ms@npm:^2.1.1":',
+      '  version: 2.1.3',
+      '  resolution: "ms@npm:2.1.3"',
+      '  languageName: node',
+      '  linkType: hard',
+    ].join('\n'));
+    try {
+      const packages = readYarnLock(filePath);
+      assert.equal(packages.length, 1);
+      assert.deepEqual(packages[0], { name: 'ms', version: '2.1.3' });
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  it('[Berry] linkType: soft のパッケージ（workspace等）をスキップする', () => {
+    const { filePath, tmpDir } = writeTempFile('yarn.lock', [
+      '__metadata:',
+      '  version: 6',
+      '',
+      '"my-app@workspace:.":',
+      '  version: 0.0.0-use.local',
+      '  resolution: "my-app@workspace:."',
+      '  languageName: unknown',
+      '  linkType: soft',
+      '',
+      '"ms@npm:^2.1.1":',
+      '  version: 2.1.3',
+      '  resolution: "ms@npm:2.1.3"',
+      '  languageName: node',
+      '  linkType: hard',
+    ].join('\n'));
+    try {
+      const packages = readYarnLock(filePath);
+      assert.equal(packages.length, 1);
+      assert.equal(packages[0].name, 'ms');
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  it('[Berry] __metadata ブロックをスキップする', () => {
+    const { filePath, tmpDir } = writeTempFile('yarn.lock', [
+      '__metadata:',
+      '  version: 6',
+      '  cacheKey: 8',
+      '',
+      '"ms@npm:^2.1.1":',
+      '  version: 2.1.3',
+      '  resolution: "ms@npm:2.1.3"',
+      '  languageName: node',
+      '  linkType: hard',
+    ].join('\n'));
+    try {
+      const packages = readYarnLock(filePath);
+      // __metadata の version: 6 をパッケージとして読まないこと
+      assert.equal(packages.length, 1);
+      assert.equal(packages[0].name, 'ms');
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  it('[Berry] スコープ付きパッケージを読み込む', () => {
+    const { filePath, tmpDir } = writeTempFile('yarn.lock', [
+      '__metadata:',
+      '  version: 6',
+      '',
+      '"@scope/pkg@npm:^1.0.0":',
+      '  version: 1.2.3',
+      '  resolution: "@scope/pkg@npm:1.2.3"',
+      '  languageName: node',
+      '  linkType: hard',
+    ].join('\n'));
+    try {
+      const packages = readYarnLock(filePath);
+      assert.equal(packages.length, 1);
+      assert.deepEqual(packages[0], { name: '@scope/pkg', version: '1.2.3' });
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  it('[Berry] 同名・同バージョンの重複エントリを1つにまとめる', () => {
+    const { filePath, tmpDir } = writeTempFile('yarn.lock', [
+      '__metadata:',
+      '  version: 6',
+      '',
+      '"ms@npm:^2.1.0":',
+      '  version: 2.1.3',
+      '  languageName: node',
+      '  linkType: hard',
+      '',
+      '"ms@npm:^2.1.1":',
+      '  version: 2.1.3',
+      '  languageName: node',
+      '  linkType: hard',
+    ].join('\n'));
+    try {
+      const packages = readYarnLock(filePath);
+      assert.equal(packages.length, 1);
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  it('testdata/yarn-classic/yarn.lock を正しく読み込む', () => {
+    const lockfilePath = path.join(__dirname, 'testdata', 'yarn-classic', 'yarn.lock');
+    const packages = readYarnLock(lockfilePath);
+    assert.ok(packages.length > 0);
+    const axios = packages.find((p) => p.name === 'axios');
+    assert.ok(axios, 'axios が含まれていること');
+    assert.equal(axios.version, '1.15.2');
+
+  });
+
+  it('testdata/yarn-berry/yarn.lock を正しく読み込む', () => {
+    const lockfilePath = path.join(__dirname, 'testdata', 'yarn-berry', 'yarn.lock');
+    const packages = readYarnLock(lockfilePath);
+    assert.ok(packages.length > 0);
+    const axios = packages.find((p) => p.name === 'axios');
+    assert.ok(axios, 'axios が含まれていること');
+    assert.equal(axios.version, '1.15.2');
   });
 });
 
