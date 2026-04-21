@@ -1,0 +1,22 @@
+{
+  "name": "@gucchisk/minreleaseage",
+  "version": "0.0.1",
+  "description": "Check if each package in package-lock.json has been released for at least N hours",
+  "main": "index.js",
+  "bin": {
+    "minreleaseage": "./bin/minreleaseage.js"
+  },
+  "scripts": {
+    "test": "node test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gucchisk/minreleaseage.git"
+  },
+  "author": "gucchisk",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/gucchisk/minreleaseage/issues"
+  },
+  "homepage": "https://github.com/gucchisk/minreleaseage#readme"
+}
