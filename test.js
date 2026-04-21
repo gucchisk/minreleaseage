@@ -243,8 +243,8 @@ describe('readPackageLock', () => {
     }
   });
 
-  it('testdata の package-lock.json を正しく読み込む（axios を含む）', () => {
-    const lockfilePath = path.join(__dirname, 'testdata', 'package-lock.json');
+  it('testdata/npm の package-lock.json を正しく読み込む（axios を含む）', () => {
+    const lockfilePath = path.join(__dirname, 'testdata', 'npm', 'package-lock.json');
     const packages = readPackageLock(lockfilePath);
     assert.ok(packages.length > 0);
     const axios = packages.find((p) => p.name === 'axios');
