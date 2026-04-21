@@ -6,14 +6,14 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'bin', 'minreleaseage.js');
-const TESTDATA_DIR = path.join(__dirname, 'testdata');
+const TESTDATA_DIR = path.join(__dirname, 'testdata', 'npm');
 
 // ---------------------------------------------------------------------------
 // checkPackageAges (integration)
 // ---------------------------------------------------------------------------
 
 describe('checkPackageAges (integration)', () => {
-  it('testdata/package-lock.json のパッケージが 0 時間以上前にリリースされている', () => {
+  it('testdata/npm/package-lock.json のパッケージが 0 時間以上前にリリースされている', () => {
     const result = spawnSync(process.execPath, [CLI, '0'], {
       cwd: TESTDATA_DIR,
       encoding: 'utf8',
@@ -30,7 +30,7 @@ describe('checkPackageAges (integration)', () => {
     );
   });
 
-  it('testdata/package-lock.json のパッケージが 999999 時間以上前にはリリースされていない', () => {
+  it('testdata/npm/package-lock.json のパッケージが 999999 時間以上前にはリリースされていない', () => {
     const result = spawnSync(process.execPath, [CLI, '999999'], {
       cwd: TESTDATA_DIR,
       encoding: 'utf8',
