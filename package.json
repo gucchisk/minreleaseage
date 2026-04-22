@@ -1,6 +1,6 @@
 {
   "name": "@gucchisk/minreleaseage",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "description": "Check if each package in package-lock.json has been released for at least N hours",
   "main": "index.js",
   "bin": "./bin/minreleaseage.js",
