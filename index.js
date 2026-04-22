@@ -126,6 +126,159 @@ function collectDependencies(dependencies, packages) {
 }
 
 /**
+ * descriptorからパッケージ名を取得する
+ * 例: "pkg@^1.0.0" → "pkg", "@scope/pkg@npm:^1.0.0" → "@scope/pkg"
+ * @param {string} descriptor
+ * @returns {string|null}
+ */
+function extractPackageNameFromDescriptor(descriptor) {
+  if (descriptor.startsWith('@')) {
+    // スコープ付きパッケージ: 2番目の @ までが名前
+    const secondAt = descriptor.indexOf('@', 1);
+    if (secondAt === -1) return null;
+    return descriptor.slice(0, secondAt);
+  }
+  const at = descriptor.indexOf('@');
+  if (at <= 0) return null;
+  return descriptor.slice(0, at);
+}
+
+/**
+ * Yarn Classic (v1) 形式の yarn.lock をパースしてパッケージ一覧を返す
+ * @param {string} content
+ * @returns {{ name: string, version: string }[]}
+ */
+function parseYarnClassic(content) {
+  const packages = new Map();
+  const lines = content.split('\n');
+
+  let currentDescriptors = [];
+  let currentVersion = null;
+
+  function flushBlock() {
+    if (currentVersion && currentDescriptors.length > 0) {
+      for (const descriptor of currentDescriptors) {
+        const name = extractPackageNameFromDescriptor(descriptor);
+        if (name) {
+          const key = `${name}@${currentVersion}`;
+          if (!packages.has(key)) {
+            packages.set(key, { name, version: currentVersion });
+          }
+        }
+      }
+    }
+    currentDescriptors = [];
+    currentVersion = null;
+  }
+
+  for (const line of lines) {
+    if (line === '' || line.startsWith('#')) {
+      flushBlock();
+      continue;
+    }
+
+    if (!line.startsWith(' ')) {
+      // descriptor行: pkg@range, "pkg@range1", "pkg@range2":
+      flushBlock();
+      const descriptorLine = line.replace(/:$/, '');
+      for (const raw of descriptorLine.split(/,\s*/)) {
+        const cleaned = raw.replace(/^"/, '').replace(/"$/, '').trim();
+        if (cleaned) currentDescriptors.push(cleaned);
+      }
+    } else {
+      // version "x.y.z"
+      const versionMatch = line.match(/^\s+version "(.+)"$/);
+      if (versionMatch) {
+        currentVersion = versionMatch[1];
+      }
+    }
+  }
+
+  flushBlock();
+  return Array.from(packages.values());
+}
+
+/**
+ * Yarn Berry (v2+) 形式の yarn.lock をパースしてパッケージ一覧を返す
+ * @param {string} content
+ * @returns {{ name: string, version: string }[]}
+ */
+function parseYarnBerry(content) {
+  const packages = new Map();
+  const lines = content.split('\n');
+
+  let currentDescriptor = null;
+  let currentVersion = null;
+  let currentLinkType = null;
+  let inMetadata = false;
+
+  function flushBlock() {
+    if (currentDescriptor && currentVersion && currentLinkType === 'hard') {
+      const name = extractPackageNameFromDescriptor(currentDescriptor);
+      if (name) {
+        const key = `${name}@${currentVersion}`;
+        if (!packages.has(key)) {
+          packages.set(key, { name, version: currentVersion });
+        }
+      }
+    }
+    currentDescriptor = null;
+    currentVersion = null;
+    currentLinkType = null;
+  }
+
+  for (const line of lines) {
+    if (line === '' || line.startsWith('#')) {
+      flushBlock();
+      inMetadata = false;
+      continue;
+    }
+
+    if (!line.startsWith(' ')) {
+      flushBlock();
+      if (line === '__metadata:') {
+        inMetadata = true;
+      } else {
+        inMetadata = false;
+        currentDescriptor = line.replace(/:$/, '').replace(/^"/, '').replace(/"$/, '');
+      }
+    } else if (!inMetadata) {
+      // version: x.y.z または version: "x.y.z"
+      const versionMatch = line.match(/^\s+version:\s+"?([^"]+)"?\s*$/);
+      if (versionMatch) {
+        currentVersion = versionMatch[1].trim();
+      }
+      const linkTypeMatch = line.match(/^\s+linkType:\s+(\S+)$/);
+      if (linkTypeMatch) {
+        currentLinkType = linkTypeMatch[1];
+      }
+    }
+  }
+
+  flushBlock();
+  return Array.from(packages.values());
+}
+
+/**
+ * yarn.lockを読み込んでパッケージ一覧を返す（Yarn Classic・Yarn Berry両対応）
+ * @param {string} lockfilePath
+ * @returns {{ name: string, version: string }[]}
+ */
+function readYarnLock(lockfilePath) {
+  if (!fs.existsSync(lockfilePath)) {
+    throw new Error(`yarn.lock not found at: ${lockfilePath}`);
+  }
+
+  const content = fs.readFileSync(lockfilePath, 'utf8');
+
+  // __metadata: ブロックがあればYarn Berry形式
+  if (content.includes('__metadata:')) {
+    return parseYarnBerry(content);
+  }
+  return parseYarnClassic(content);
+}
+
+/**
  * 指定された並行数でPromiseを実行する
  * @param {Array} items
  * @param {number} concurrency
@@ -154,11 +307,22 @@ async function runWithConcurrencyLimit(items, concurrency, fn) {
  * @returns {Promise<void>}
  */
 async function checkPackageAges(minAgeHours) {
-  const lockfilePath = path.resolve(process.cwd(), 'package-lock.json');
-  const packages = readPackageLock(lockfilePath);
+  const cwd = process.cwd();
+  const yarnLockPath = path.resolve(cwd, 'yarn.lock');
+  const packageLockPath = path.resolve(cwd, 'package-lock.json');
+
+  let packages;
+  let lockfileName;
+  if (fs.existsSync(yarnLockPath)) {
+    packages = readYarnLock(yarnLockPath);
+    lockfileName = 'yarn.lock';
+  } else {
+    packages = readPackageLock(packageLockPath);
+    lockfileName = 'package-lock.json';
+  }
 
   if (packages.length === 0) {
-    process.stdout.write('No packages found in package-lock.json\n');
+    process.stdout.write(`No packages found in ${lockfileName}\n`);
     process.exit(0);
   }
 
@@ -200,4 +364,4 @@ async function checkPackageAges(minAgeHours) {
   process.exit(0);
 }
 
-module.exports = { checkPackageAges, readPackageLock, fetchReleaseDate };
+module.exports = { checkPackageAges, readPackageLock, readYarnLock, fetchReleaseDate };
