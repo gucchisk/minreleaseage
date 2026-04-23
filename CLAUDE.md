@@ -5,8 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## コマンド
 
 ```bash
-# CLI を直接実行（testdata ディレクトリで実行する例）
-cd testdata && node ../bin/minreleaseage.js 24
+# CLI を直接実行（testdata/npm ディレクトリで実行する例）
+cd testdata/npm && node ../../bin/minreleaseage.js 24
 
 # テスト（package.json の scripts.test が定義されていれば）
 node test.js
@@ -14,14 +14,27 @@ node test.js
 
 ## アーキテクチャ
 
-このツールは `package-lock.json` 内の全パッケージが指定時間（時間単位）以上前にリリースされているかを npm registry で検証する CLI。
+このツールは lockfile（`yarn.lock` または `package-lock.json`）内の全パッケージが指定時間（時間単位）以上前にリリースされているかを npm registry で検証する CLI。サプライチェーン攻撃対策が目的。
+
+### 対応 lockfile
+
+| ファイル | パッケージマネージャ |
+|---|---|
+| `yarn.lock`（Yarn Classic v1 形式） | Yarn 1.x |
+| `yarn.lock`（Yarn Berry v2+ 形式） | Yarn 2 / 3 / 4 |
+| `package-lock.json`（v1/v2/v3） | npm |
+
+`yarn.lock` が存在する場合は優先して使用し、なければ `package-lock.json` を使用する。
 
 ### データフロー
 
 ```
 bin/minreleaseage.js（CLI引数パース）
   └─ checkPackageAges(minAgeHours)  [index.js]
-       ├─ readPackageLock()  → { name, version }[] のリストを返す
+       ├─ yarn.lock が存在する場合: readYarnLock()  → { name, version }[]
+       │    ├─ __metadata: ブロックあり → parseYarnBerry()
+       │    └─ なし              → parseYarnClassic()
+       ├─ それ以外: readPackageLock()  → { name, version }[]
        │    ├─ lockfileVersion 2+: packages フィールドを使用
        │    └─ lockfileVersion 1: dependencies フィールドを再帰的に収集
        └─ runWithConcurrencyLimit(packages, 10, ...)  → 並行数10でフェッチ
@@ -38,4 +51,8 @@ bin/minreleaseage.js（CLI引数パース）
 
 ### testdata/
 
-`testdata/` はツールの動作確認用のダミープロジェクト（axios を依存として持つ）。`minreleaseage` は `package-lock.json` が存在するディレクトリで実行する。
+`testdata/` はツールの動作確認用のダミープロジェクト。`minreleaseage` は lockfile が存在するディレクトリで実行する。
+
+- `testdata/npm/` — npm（`package-lock.json`）
+- `testdata/yarn-classic/` — Yarn Classic（`yarn.lock`）
+- `testdata/yarn-berry/` — Yarn Berry（`yarn.lock`）
