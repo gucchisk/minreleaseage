@@ -5,8 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## コマンド
 
 ```bash
-# CLI を直接実行（testdata ディレクトリで実行する例）
-cd testdata && node ../bin/minreleaseage.js 24
+# CLI を直接実行（testdata/npm ディレクトリで実行する例）
+cd testdata/npm && node ../../bin/minreleaseage.js 24
 
 # テスト（package.json の scripts.test が定義されていれば）
 node test.js
