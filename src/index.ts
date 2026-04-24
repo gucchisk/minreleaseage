@@ -1,17 +1,22 @@
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
-const https = require('https');
+import * as fs from 'fs';
+import * as path from 'path';
+import * as https from 'https';
 
-/**
- * npm registryからパッケージのリリース日時を取得する
- * パッケージルートエンドポイント(GET /packageName)の time[version] を使用する
- * @param {string} packageName
- * @param {string} version
- * @returns {Promise<Date>}
- */
-function fetchReleaseDate(packageName, version) {
+export interface Package {
+  name: string;
+  version: string;
+}
+
+interface TooNewPackage {
+  name: string;
+  version: string;
+  ageHours: string;
+  releasedAt: string;
+}
+
+export function fetchReleaseDate(packageName: string, version: string): Promise<Date> {
   return new Promise((resolve, reject) => {
     // スコープ付きパッケージ (@scope/name) は / を %2F にエンコードする
     const encodedName = packageName.startsWith('@')
@@ -37,33 +42,28 @@ function fetchReleaseDate(packageName, version) {
       }
 
       let body = '';
-      res.on('data', (chunk) => { body += chunk; });
+      res.on('data', (chunk: Buffer) => { body += chunk; });
       res.on('end', () => {
         try {
           const data = JSON.parse(body);
           // パッケージルートレスポンスの time オブジェクトからバージョンの公開日時を取得する
-          const releaseTime = data.time && data.time[version];
+          const releaseTime: string | undefined = data.time && data.time[version];
           if (releaseTime) {
             resolve(new Date(releaseTime));
           } else {
             reject(new Error(`Release time not found for ${packageName}@${version}`));
           }
         } catch (e) {
-          reject(new Error(`Failed to parse registry response for ${packageName}: ${e.message}`));
+          reject(new Error(`Failed to parse registry response for ${packageName}: ${(e as Error).message}`));
         }
       });
-    }).on('error', (err) => {
+    }).on('error', (err: Error) => {
       reject(new Error(`Network error fetching ${packageName}: ${err.message}`));
     });
   });
 }
 
-/**
- * package-lock.jsonを読み込んでパッケージ一覧を返す
- * @param {string} lockfilePath
- * @returns {{ name: string, version: string }[]}
- */
-function readPackageLock(lockfilePath) {
+export function readPackageLock(lockfilePath: string): Package[] {
   if (!fs.existsSync(lockfilePath)) {
     throw new Error(`package-lock.json not found at: ${lockfilePath}`);
   }
@@ -71,26 +71,21 @@ function readPackageLock(lockfilePath) {
   const content = fs.readFileSync(lockfilePath, 'utf8');
   const lockData = JSON.parse(content);
 
-  const packages = new Map();
+  const packages = new Map<string, Package>();
 
   // lockfileVersion 2以上は packages フィールドを使用
   if (lockData.packages) {
-    for (const [pkgPath, pkgInfo] of Object.entries(lockData.packages)) {
-      // ルートパッケージ(空文字キー)はスキップ
+    for (const [pkgPath, pkgInfo] of Object.entries(lockData.packages) as [string, Record<string, string | boolean>][]) {
       if (pkgPath === '') continue;
-      // symlink はスキップ
       if (pkgInfo.link) continue;
 
-      const version = pkgInfo.version;
+      const version = pkgInfo.version as string | undefined;
       if (!version) continue;
 
       // pkgInfo.name があればそれを使用、なければパスの最後の node_modules/ 以降を取得
-      // 例: "node_modules/foo/node_modules/bar" → "bar"
-      //     "node_modules/@scope/pkg" → "@scope/pkg"
-      const name = pkgInfo.name || pkgPath.replace(/^.*node_modules\//, '');
+      const name = (pkgInfo.name as string | undefined) || pkgPath.replace(/^.*node_modules\//, '');
 
       if (name) {
-        // 同名・同バージョンの重複は1つにまとめる
         const key = `${name}@${version}`;
         if (!packages.has(key)) {
           packages.set(key, { name, version });
@@ -105,12 +100,10 @@ function readPackageLock(lockfilePath) {
   return Array.from(packages.values());
 }
 
-/**
- * lockfileVersion 1のdependenciesを再帰的に収集する
- * @param {object} dependencies
- * @param {Map} packages
- */
-function collectDependencies(dependencies, packages) {
+function collectDependencies(
+  dependencies: Record<string, { version?: string; dependencies?: Record<string, unknown> }>,
+  packages: Map<string, Package>
+): void {
   for (const [name, info] of Object.entries(dependencies)) {
     const version = info.version;
     if (name && version) {
@@ -120,18 +113,15 @@ function collectDependencies(dependencies, packages) {
       }
     }
     if (info.dependencies) {
-      collectDependencies(info.dependencies, packages);
+      collectDependencies(
+        info.dependencies as Record<string, { version?: string; dependencies?: Record<string, unknown> }>,
+        packages
+      );
     }
   }
 }
 
-/**
- * descriptorからパッケージ名を取得する
- * 例: "pkg@^1.0.0" → "pkg", "@scope/pkg@npm:^1.0.0" → "@scope/pkg"
- * @param {string} descriptor
- * @returns {string|null}
- */
-function extractPackageNameFromDescriptor(descriptor) {
+function extractPackageNameFromDescriptor(descriptor: string): string | null {
   if (descriptor.startsWith('@')) {
     // スコープ付きパッケージ: 2番目の @ までが名前
     const secondAt = descriptor.indexOf('@', 1);
@@ -143,26 +133,21 @@ function extractPackageNameFromDescriptor(descriptor) {
   return descriptor.slice(0, at);
 }
 
-/**
- * Yarn Classic (v1) 形式の yarn.lock をパースしてパッケージ一覧を返す
- * @param {string} content
- * @returns {{ name: string, version: string }[]}
- */
-function parseYarnClassic(content) {
-  const packages = new Map();
+function parseYarnClassic(content: string): Package[] {
+  const packages = new Map<string, Package>();
   const lines = content.split('\n');
 
-  let currentDescriptors = [];
-  let currentVersion = null;
+  let currentDescriptors: string[] = [];
+  let currentVersion: string | null = null;
 
-  function flushBlock() {
+  function flushBlock(): void {
     if (currentVersion && currentDescriptors.length > 0) {
       for (const descriptor of currentDescriptors) {
         const name = extractPackageNameFromDescriptor(descriptor);
         if (name) {
           const key = `${name}@${currentVersion}`;
           if (!packages.has(key)) {
-            packages.set(key, { name, version: currentVersion });
+            packages.set(key, { name, version: currentVersion as string });
           }
         }
       }
@@ -198,27 +183,22 @@ function parseYarnClassic(content) {
   return Array.from(packages.values());
 }
 
-/**
- * Yarn Berry (v2+) 形式の yarn.lock をパースしてパッケージ一覧を返す
- * @param {string} content
- * @returns {{ name: string, version: string }[]}
- */
-function parseYarnBerry(content) {
-  const packages = new Map();
+function parseYarnBerry(content: string): Package[] {
+  const packages = new Map<string, Package>();
   const lines = content.split('\n');
 
-  let currentDescriptor = null;
-  let currentVersion = null;
-  let currentLinkType = null;
+  let currentDescriptor: string | null = null;
+  let currentVersion: string | null = null;
+  let currentLinkType: string | null = null;
   let inMetadata = false;
 
-  function flushBlock() {
+  function flushBlock(): void {
     if (currentDescriptor && currentVersion && currentLinkType === 'hard') {
       const name = extractPackageNameFromDescriptor(currentDescriptor);
       if (name) {
         const key = `${name}@${currentVersion}`;
         if (!packages.has(key)) {
-          packages.set(key, { name, version: currentVersion });
+          packages.set(key, { name, version: currentVersion as string });
         }
       }
     }
@@ -259,12 +239,7 @@ function parseYarnBerry(content) {
   return Array.from(packages.values());
 }
 
-/**
- * yarn.lockを読み込んでパッケージ一覧を返す（Yarn Classic・Yarn Berry両対応）
- * @param {string} lockfilePath
- * @returns {{ name: string, version: string }[]}
- */
-function readYarnLock(lockfilePath) {
+export function readYarnLock(lockfilePath: string): Package[] {
   if (!fs.existsSync(lockfilePath)) {
     throw new Error(`yarn.lock not found at: ${lockfilePath}`);
   }
@@ -278,18 +253,15 @@ function readYarnLock(lockfilePath) {
   return parseYarnClassic(content);
 }
 
-/**
- * 指定された並行数でPromiseを実行する
- * @param {Array} items
- * @param {number} concurrency
- * @param {Function} fn
- * @returns {Promise<Array>}
- */
-async function runWithConcurrencyLimit(items, concurrency, fn) {
-  const results = [];
+async function runWithConcurrencyLimit<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = [];
   let index = 0;
 
-  async function worker() {
+  async function worker(): Promise<void> {
     while (index < items.length) {
       const currentIndex = index++;
       results[currentIndex] = await fn(items[currentIndex], currentIndex);
@@ -301,18 +273,13 @@ async function runWithConcurrencyLimit(items, concurrency, fn) {
   return results;
 }
 
-/**
- * package-lock.json内の全パッケージが指定時間以上前にリリースされているか確認する
- * @param {number} minAgeHours - 最低経過時間（時間単位）
- * @returns {Promise<void>}
- */
-async function checkPackageAges(minAgeHours) {
+export async function checkPackageAges(minAgeHours: number): Promise<void> {
   const cwd = process.cwd();
   const yarnLockPath = path.resolve(cwd, 'yarn.lock');
   const packageLockPath = path.resolve(cwd, 'package-lock.json');
 
-  let packages;
-  let lockfileName;
+  let packages: Package[];
+  let lockfileName: string;
   if (fs.existsSync(yarnLockPath)) {
     packages = readYarnLock(yarnLockPath);
     lockfileName = 'yarn.lock';
@@ -330,16 +297,16 @@ async function checkPackageAges(minAgeHours) {
 
   const nowMs = Date.now();
   const minAgeMs = minAgeHours * 60 * 60 * 1000;
-  const tooNewPackages = [];
+  const tooNewPackages: TooNewPackage[] = [];
 
   const CONCURRENCY = 10;
 
   await runWithConcurrencyLimit(packages, CONCURRENCY, async ({ name, version }) => {
-    let releaseDate;
+    let releaseDate: Date;
     try {
       releaseDate = await fetchReleaseDate(name, version);
     } catch (err) {
-      process.stderr.write(`Warning: Could not fetch release date for ${name}@${version}: ${err.message}\n`);
+      process.stderr.write(`Warning: Could not fetch release date for ${name}@${version}: ${(err as Error).message}\n`);
       return;
     }
 
@@ -363,5 +330,3 @@ async function checkPackageAges(minAgeHours) {
   process.stdout.write(`All ${packages.length} packages have been released for at least ${minAgeHours} hours.\n`);
   process.exit(0);
 }
-
-module.exports = { checkPackageAges, readPackageLock, readYarnLock, fetchReleaseDate };

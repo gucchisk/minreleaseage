@@ -1,26 +1,25 @@
 'use strict';
 
-const { describe, it } = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const https = require('https');
-const { EventEmitter } = require('events');
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import https = require('https');
+import { EventEmitter } from 'events';
 
-const { readPackageLock, readYarnLock, fetchReleaseDate } = require('./index.js');
+import { readPackageLock, readYarnLock, fetchReleaseDate } from './src/index';
 
 // ---------------------------------------------------------------------------
 // ヘルパー
 // ---------------------------------------------------------------------------
 
-/**
- * テスト用の HTTPS レスポンスモックを生成する
- * @param {number} statusCode
- * @param {object} bodyObject
- */
-function createMockResponse(statusCode, bodyObject) {
-  const response = new EventEmitter();
+interface MockResponse extends EventEmitter {
+  statusCode: number;
+}
+
+function createMockResponse(statusCode: number, bodyObject: object): MockResponse {
+  const response = new EventEmitter() as MockResponse;
   response.statusCode = statusCode;
   setImmediate(() => {
     response.emit('data', JSON.stringify(bodyObject));
@@ -29,36 +28,21 @@ function createMockResponse(statusCode, bodyObject) {
   return response;
 }
 
-/**
- * テスト用の一時 package-lock.json を作成して、そのパスと一時ディレクトリを返す
- * @param {object} lockfileContent
- * @returns {{ filePath: string, tmpDir: string }}
- */
-function writeTempLockfile(lockfileContent) {
+function writeTempLockfile(lockfileContent: object): { filePath: string; tmpDir: string } {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minreleaseage-test-'));
   const filePath = path.join(tmpDir, 'package-lock.json');
   fs.writeFileSync(filePath, JSON.stringify(lockfileContent), 'utf8');
   return { filePath, tmpDir };
 }
 
-/**
- * 指定したファイル名で一時ファイルを作成して、そのパスと一時ディレクトリを返す
- * @param {string} filename
- * @param {string} content
- * @returns {{ filePath: string, tmpDir: string }}
- */
-function writeTempFile(filename, content) {
+function writeTempFile(filename: string, content: string): { filePath: string; tmpDir: string } {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minreleaseage-test-'));
   const filePath = path.join(tmpDir, filename);
   fs.writeFileSync(filePath, content, 'utf8');
   return { filePath, tmpDir };
 }
 
-/**
- * 一時ディレクトリを削除する
- * @param {string} tmpDir
- */
-function removeTempDir(tmpDir) {
+function removeTempDir(tmpDir: string): void {
   fs.rmSync(tmpDir, { recursive: true });
 }
 
@@ -243,7 +227,7 @@ describe('readPackageLock', () => {
         foo: {
           version: '1.0.0',
           dependencies: {
-            foo: { version: '1.0.0' }, // 同一バージョンの重複
+            foo: { version: '1.0.0' },
           },
         },
       },
@@ -262,7 +246,7 @@ describe('readPackageLock', () => {
     assert.ok(packages.length > 0);
     const axios = packages.find((p) => p.name === 'axios');
     assert.ok(axios, 'axios が含まれていること');
-    assert.equal(axios.version, '1.15.2');
+    assert.equal(axios?.version, '1.15.2');
   });
 });
 
@@ -273,7 +257,7 @@ describe('readPackageLock', () => {
 describe('fetchReleaseDate', () => {
   it('成功時に Date オブジェクトを返す', async (t) => {
     const releaseDate = '2024-01-15T10:00:00.000Z';
-    t.mock.method(https, 'get', (_url, _options, callback) => {
+    t.mock.method(https, 'get', (_url: string, _options: object, callback: (res: MockResponse) => void) => {
       callback(createMockResponse(200, { time: { '1.0.0': releaseDate } }));
       return new EventEmitter();
     });
@@ -285,7 +269,7 @@ describe('fetchReleaseDate', () => {
 
   it('スコープ付きパッケージの "/" を "%2F" にエンコードしてリクエストする', async (t) => {
     let capturedUrl = '';
-    t.mock.method(https, 'get', (url, _options, callback) => {
+    t.mock.method(https, 'get', (url: string, _options: object, callback: (res: MockResponse) => void) => {
       capturedUrl = url;
       callback(createMockResponse(200, { time: { '1.0.0': '2024-01-01T00:00:00.000Z' } }));
       return new EventEmitter();
@@ -303,7 +287,7 @@ describe('fetchReleaseDate', () => {
   });
 
   it('404 レスポンスの場合はパッケージ未発見エラーを返す', async (t) => {
-    t.mock.method(https, 'get', (_url, _options, callback) => {
+    t.mock.method(https, 'get', (_url: string, _options: object, callback: (res: MockResponse) => void) => {
       callback(createMockResponse(404, {}));
       return new EventEmitter();
     });
@@ -315,7 +299,7 @@ describe('fetchReleaseDate', () => {
   });
 
   it('200 以外のレスポンスの場合はステータスコードを含むエラーを返す', async (t) => {
-    t.mock.method(https, 'get', (_url, _options, callback) => {
+    t.mock.method(https, 'get', (_url: string, _options: object, callback: (res: MockResponse) => void) => {
       callback(createMockResponse(503, {}));
       return new EventEmitter();
     });
@@ -327,8 +311,7 @@ describe('fetchReleaseDate', () => {
   });
 
   it('time フィールドに指定バージョンがない場合はエラーを返す', async (t) => {
-    t.mock.method(https, 'get', (_url, _options, callback) => {
-      // 別バージョンのみ存在する
+    t.mock.method(https, 'get', (_url: string, _options: object, callback: (res: MockResponse) => void) => {
       callback(createMockResponse(200, { time: { '2.0.0': '2024-01-01T00:00:00.000Z' } }));
       return new EventEmitter();
     });
@@ -340,8 +323,8 @@ describe('fetchReleaseDate', () => {
   });
 
   it('time フィールド自体がない場合はエラーを返す', async (t) => {
-    t.mock.method(https, 'get', (_url, _options, callback) => {
-      callback(createMockResponse(200, { name: 'some-package' })); // time なし
+    t.mock.method(https, 'get', (_url: string, _options: object, callback: (res: MockResponse) => void) => {
+      callback(createMockResponse(200, { name: 'some-package' }));
       return new EventEmitter();
     });
 
@@ -352,9 +335,9 @@ describe('fetchReleaseDate', () => {
   });
 
   it('不正な JSON レスポンスの場合はパースエラーを返す', async (t) => {
-    const response = new EventEmitter();
+    const response = new EventEmitter() as MockResponse;
     response.statusCode = 200;
-    t.mock.method(https, 'get', (_url, _options, callback) => {
+    t.mock.method(https, 'get', (_url: string, _options: object, callback: (res: MockResponse) => void) => {
       setImmediate(() => {
         response.emit('data', 'invalid json {{{');
         response.emit('end');
@@ -551,7 +534,6 @@ describe('readYarnLock', () => {
     ].join('\n'));
     try {
       const packages = readYarnLock(filePath);
-      // __metadata の version: 6 をパッケージとして読まないこと
       assert.equal(packages.length, 1);
       assert.equal(packages[0].name, 'ms');
     } finally {
@@ -608,8 +590,7 @@ describe('readYarnLock', () => {
     assert.ok(packages.length > 0);
     const axios = packages.find((p) => p.name === 'axios');
     assert.ok(axios, 'axios が含まれていること');
-    assert.equal(axios.version, '1.15.2');
-
+    assert.equal(axios?.version, '1.15.2');
   });
 
   it('testdata/yarn-berry/yarn.lock を正しく読み込む', () => {
@@ -618,7 +599,6 @@ describe('readYarnLock', () => {
     assert.ok(packages.length > 0);
     const axios = packages.find((p) => p.name === 'axios');
     assert.ok(axios, 'axios が含まれていること');
-    assert.equal(axios.version, '1.15.2');
+    assert.equal(axios?.version, '1.15.2');
   });
 });
-

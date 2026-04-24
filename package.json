@@ -2,11 +2,15 @@
   "name": "@gucchisk/minreleaseage",
   "version": "0.0.0",
   "description": "Check if each package in package-lock.json has been released for at least N hours",
-  "main": "index.js",
-  "bin": "./bin/minreleaseage.js",
+  "main": "dist/index.js",
+  "bin": "./dist/cli.js",
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "test:unit": "node test.js",
-    "test:e2e": "node e2e.js",
+    "build": "tsc",
+    "test:unit": "tsx --test test.ts",
+    "test:e2e": "npm run build && tsx e2e.ts",
     "test": "npm run test:unit && npm run test:e2e"
   },
   "repository": {
@@ -19,5 +23,10 @@
     "url": "https://github.com/gucchisk/minreleaseage/issues"
   },
   "homepage": "https://github.com/gucchisk/minreleaseage#readme",
-  "packageManager": "yarn@4.14.1"
+  "packageManager": "yarn@4.14.1",
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
+  }
 }

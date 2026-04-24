@@ -1,18 +1,13 @@
 'use strict';
 
-const { describe, it } = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import * as path from 'node:path';
+import { spawnSync, SpawnSyncReturns } from 'node:child_process';
 
-const CLI = path.join(__dirname, 'bin', 'minreleaseage.js');
+const CLI = path.join(__dirname, 'dist', 'cli.js');
 
-/**
- * minreleaseage CLI を指定ディレクトリで実行する
- * @param {string} cwd
- * @param {string} minAgeHours
- */
-function runCLI(cwd, minAgeHours) {
+function runCLI(cwd: string, minAgeHours: string): SpawnSyncReturns<string> {
   return spawnSync(process.execPath, [CLI, minAgeHours], { cwd, encoding: 'utf8' });
 }
 

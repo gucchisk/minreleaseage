@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-const { checkPackageAges } = require('../index.js');
+import { checkPackageAges } from './index';
 
 const args = process.argv.slice(2);
 
@@ -17,7 +17,7 @@ if (isNaN(minAgeHours) || minAgeHours < 0) {
   process.exit(1);
 }
 
-checkPackageAges(minAgeHours).catch((err) => {
+checkPackageAges(minAgeHours).catch((err: Error) => {
   process.stderr.write(`Unexpected error: ${err.message}\n`);
   process.exit(1);
 });
