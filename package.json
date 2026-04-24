@@ -4,6 +4,9 @@
   "description": "Check if each package in package-lock.json has been released for at least N hours",
   "main": "dist/index.js",
   "bin": "./dist/cli.js",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "test:unit": "tsx --test test.ts",
