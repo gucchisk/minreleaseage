@@ -8,7 +8,7 @@ import * as path from 'node:path';
 import https = require('https');
 import { EventEmitter } from 'events';
 
-import { readPackageLock, readYarnLock, fetchReleaseDate } from './src/index';
+import { readPackageLock, readYarnLock, readPnpmLock, fetchReleaseDate } from './src/index';
 
 // ---------------------------------------------------------------------------
 // ヘルパー
@@ -596,6 +596,161 @@ describe('readYarnLock', () => {
   it('testdata/yarn-berry/yarn.lock を正しく読み込む', () => {
     const lockfilePath = path.join(__dirname, 'testdata', 'yarn-berry', 'yarn.lock');
     const packages = readYarnLock(lockfilePath);
+    assert.ok(packages.length > 0);
+    const axios = packages.find((p) => p.name === 'axios');
+    assert.ok(axios, 'axios が含まれていること');
+    assert.equal(axios?.version, '1.15.2');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readPnpmLock
+// ---------------------------------------------------------------------------
+
+const V9_LINES = [
+  "lockfileVersion: '9.0'",
+  '',
+  'packages:',
+  '',
+  '  lodash@4.17.21:',
+  '    resolution: {integrity: sha512-abc}',
+  '',
+  "  '@scope/pkg@1.0.0':",
+  '    resolution: {integrity: sha512-def}',
+  '',
+  'snapshots:',
+  '',
+  '  lodash@4.17.21: {}',
+];
+
+describe('readPnpmLock', () => {
+  it('存在しないファイルを指定した場合はエラーをスローする', () => {
+    assert.throws(
+      () => readPnpmLock('/nonexistent/pnpm-lock.yaml'),
+      /pnpm-lock.yaml not found at:/
+    );
+  });
+
+  it('v9形式（LF）からパッケージを読み込む', () => {
+    const { filePath, tmpDir } = writeTempFile('pnpm-lock.yaml', V9_LINES.join('\n'));
+    try {
+      const packages = readPnpmLock(filePath);
+      assert.equal(packages.length, 2);
+      assert.ok(packages.some((p) => p.name === 'lodash' && p.version === '4.17.21'));
+      assert.ok(packages.some((p) => p.name === '@scope/pkg' && p.version === '1.0.0'));
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  it('v9形式（CRLF）でも正しく読み込む', () => {
+    const { filePath, tmpDir } = writeTempFile('pnpm-lock.yaml', V9_LINES.join('\r\n'));
+    try {
+      const packages = readPnpmLock(filePath);
+      assert.equal(packages.length, 2, 'CRLFでもパッケージが0件にならないこと');
+      assert.ok(packages.some((p) => p.name === 'lodash' && p.version === '4.17.21'));
+      assert.ok(packages.some((p) => p.name === '@scope/pkg' && p.version === '1.0.0'));
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  it('v6形式（/name@version）を読み込む', () => {
+    const { filePath, tmpDir } = writeTempFile('pnpm-lock.yaml', [
+      "lockfileVersion: '6.0'",
+      '',
+      'packages:',
+      '',
+      '  /lodash@4.17.21:',
+      '    resolution: {integrity: sha512-abc}',
+      '',
+      '  /@scope/pkg@1.0.0:',
+      '    resolution: {integrity: sha512-def}',
+    ].join('\n'));
+    try {
+      const packages = readPnpmLock(filePath);
+      assert.equal(packages.length, 2);
+      assert.ok(packages.some((p) => p.name === 'lodash' && p.version === '4.17.21'));
+      assert.ok(packages.some((p) => p.name === '@scope/pkg' && p.version === '1.0.0'));
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  it('v5形式（/name/version）を読み込む', () => {
+    const { filePath, tmpDir } = writeTempFile('pnpm-lock.yaml', [
+      'lockfileVersion: 5.4',
+      '',
+      'packages:',
+      '',
+      '  /lodash/4.17.21:',
+      '    resolution: {integrity: sha512-abc}',
+      '',
+      '  /@scope/pkg/1.0.0:',
+      '    resolution: {integrity: sha512-def}',
+    ].join('\n'));
+    try {
+      const packages = readPnpmLock(filePath);
+      assert.equal(packages.length, 2);
+      assert.ok(packages.some((p) => p.name === 'lodash' && p.version === '4.17.21'));
+      assert.ok(packages.some((p) => p.name === '@scope/pkg' && p.version === '1.0.0'));
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  it('ピア依存サフィックス（アンダースコア形式）を除去する', () => {
+    const { filePath, tmpDir } = writeTempFile('pnpm-lock.yaml', [
+      "lockfileVersion: '6.0'",
+      '',
+      'packages:',
+      '',
+      '  /react@18.2.0_react-dom@18.2.0:',
+      '    resolution: {integrity: sha512-abc}',
+    ].join('\n'));
+    try {
+      const packages = readPnpmLock(filePath);
+      assert.equal(packages.length, 1);
+      assert.equal(packages[0].name, 'react');
+      assert.equal(packages[0].version, '18.2.0');
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  it('ピア依存サフィックス（括弧形式）を除去する', () => {
+    const { filePath, tmpDir } = writeTempFile('pnpm-lock.yaml', [
+      "lockfileVersion: '9.0'",
+      '',
+      'packages:',
+      '',
+      '  react@18.2.0(react-dom@18.2.0):',
+      '    resolution: {integrity: sha512-abc}',
+    ].join('\n'));
+    try {
+      const packages = readPnpmLock(filePath);
+      assert.equal(packages.length, 1);
+      assert.equal(packages[0].name, 'react');
+      assert.equal(packages[0].version, '18.2.0');
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  it('snapshots: セクションのエントリは無視する', () => {
+    const { filePath, tmpDir } = writeTempFile('pnpm-lock.yaml', V9_LINES.join('\n'));
+    try {
+      const packages = readPnpmLock(filePath);
+      // snapshots: 以降の lodash@4.17.21 は重複カウントされない
+      assert.equal(packages.length, 2);
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  it('testdata/pnpm/pnpm-lock.yaml を正しく読み込む（axios を含む）', () => {
+    const lockfilePath = path.join(__dirname, 'testdata', 'pnpm', 'pnpm-lock.yaml');
+    const packages = readPnpmLock(lockfilePath);
     assert.ok(packages.length > 0);
     const axios = packages.find((p) => p.name === 'axios');
     assert.ok(axios, 'axios が含まれていること');

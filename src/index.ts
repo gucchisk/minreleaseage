@@ -310,7 +310,7 @@ function parsePnpmPackageKey(rawKey: string): { name: string; version: string } 
 
 function parsePnpmLock(content: string): Package[] {
   const packages = new Map<string, Package>();
-  const lines = content.split('\n');
+  const lines = content.split(/\r?\n/);
 
   let inPackagesSection = false;
 
