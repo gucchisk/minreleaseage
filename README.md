@@ -54,11 +54,12 @@ Exit code `1` is returned when any package fails the check.
 
 | Lockfile | Package manager |
 |---|---|
+| `pnpm-lock.yaml` (v5/v6/v7/v8/v9) | pnpm |
 | `yarn.lock` (Yarn Classic v1) | Yarn 1.x |
 | `yarn.lock` (Yarn Berry v2+) | Yarn 2 / 3 / 4 |
 | `package-lock.json` (v1/v2/v3) | npm |
 
-If `yarn.lock` exists in the current directory it takes precedence. Otherwise `package-lock.json` is used.
+Priority order: `pnpm-lock.yaml` → `yarn.lock` → `package-lock.json`
 
 ## Use in CI
 
