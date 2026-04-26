@@ -135,7 +135,7 @@ function extractPackageNameFromDescriptor(descriptor: string): string | null {
 
 function parseYarnClassic(content: string): Package[] {
   const packages = new Map<string, Package>();
-  const lines = content.split('\n');
+  const lines = content.split(/\r?\n/);
 
   let currentDescriptors: string[] = [];
   let currentVersion: string | null = null;
@@ -185,7 +185,7 @@ function parseYarnClassic(content: string): Package[] {
 
 function parseYarnBerry(content: string): Package[] {
   const packages = new Map<string, Package>();
-  const lines = content.split('\n');
+  const lines = content.split(/\r?\n/);
 
   let currentDescriptor: string | null = null;
   let currentVersion: string | null = null;

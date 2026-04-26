@@ -584,6 +584,45 @@ describe('readYarnLock', () => {
     }
   });
 
+  it('[Classic] CRLF改行でも正しく読み込む', () => {
+    const lines = [
+      '# yarn lockfile v1',
+      '',
+      'ms@^2.1.1:',
+      '  version "2.1.3"',
+      '  resolved "https://registry.yarnpkg.com/ms/-/ms-2.1.3.tgz"',
+    ];
+    const { filePath, tmpDir } = writeTempFile('yarn.lock', lines.join('\r\n'));
+    try {
+      const packages = readYarnLock(filePath);
+      assert.equal(packages.length, 1, 'CRLFでもパッケージが0件にならないこと');
+      assert.deepEqual(packages[0], { name: 'ms', version: '2.1.3' });
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  it('[Berry] CRLF改行でも正しく読み込む', () => {
+    const lines = [
+      '__metadata:',
+      '  version: 6',
+      '',
+      '"ms@npm:^2.1.1":',
+      '  version: 2.1.3',
+      '  resolution: "ms@npm:2.1.3"',
+      '  languageName: node',
+      '  linkType: hard',
+    ];
+    const { filePath, tmpDir } = writeTempFile('yarn.lock', lines.join('\r\n'));
+    try {
+      const packages = readYarnLock(filePath);
+      assert.equal(packages.length, 1, 'CRLFでもパッケージが0件にならないこと');
+      assert.deepEqual(packages[0], { name: 'ms', version: '2.1.3' });
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
   it('testdata/yarn-classic/yarn.lock を正しく読み込む', () => {
     const lockfilePath = path.join(__dirname, 'testdata', 'yarn-classic', 'yarn.lock');
     const packages = readYarnLock(lockfilePath);
