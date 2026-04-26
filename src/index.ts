@@ -253,6 +253,110 @@ export function readYarnLock(lockfilePath: string): Package[] {
   return parseYarnClassic(content);
 }
 
+// pnpm-lock.yaml のパッケージキーから name と version を抽出する
+// 対応フォーマット:
+//   v9:   lodash@4.17.21  /  @scope/pkg@1.0.0  /  react@18.2.0(react-dom@18.2.0)
+//   v6-8: /lodash@4.17.21  /  /@scope/pkg@1.0.0  /  /react@18.2.0_react-dom@18.2.0
+//   v5:   /lodash/4.17.21  /  /@scope/pkg/1.0.0
+function parsePnpmPackageKey(rawKey: string): { name: string; version: string } | null {
+  // 先頭の / を除去
+  const key = rawKey.startsWith('/') ? rawKey.slice(1) : rawKey;
+
+  let name: string;
+  let rawVersion: string;
+
+  if (key.startsWith('@')) {
+    // スコープ付きパッケージ: @scope/name@version または @scope/name/version (v5)
+    const firstSlash = key.indexOf('/');
+    if (firstSlash === -1) return null;
+    const afterScope = key.slice(firstSlash + 1);
+
+    const atInName = afterScope.indexOf('@');
+    const slashInName = afterScope.indexOf('/');
+
+    if (atInName !== -1 && (slashInName === -1 || atInName < slashInName)) {
+      // @scope/name@version
+      name = key.slice(0, firstSlash + 1 + atInName);
+      rawVersion = afterScope.slice(atInName + 1);
+    } else if (slashInName !== -1) {
+      // @scope/name/version (v5)
+      name = key.slice(0, firstSlash + 1 + slashInName);
+      rawVersion = afterScope.slice(slashInName + 1);
+    } else {
+      return null;
+    }
+  } else {
+    // 非スコープ: name@version または name/version (v5)
+    const atIndex = key.indexOf('@');
+    const slashIndex = key.indexOf('/');
+
+    if (atIndex !== -1 && (slashIndex === -1 || atIndex < slashIndex)) {
+      name = key.slice(0, atIndex);
+      rawVersion = key.slice(atIndex + 1);
+    } else if (slashIndex !== -1) {
+      name = key.slice(0, slashIndex);
+      rawVersion = key.slice(slashIndex + 1);
+    } else {
+      return null;
+    }
+  }
+
+  // ピア依存サフィックスを除去: _peer@version (v6-8) または (peers...) (v9)
+  const version = rawVersion.split('(')[0].split('_')[0];
+
+  if (!name || !version) return null;
+  return { name, version };
+}
+
+function parsePnpmLock(content: string): Package[] {
+  const packages = new Map<string, Package>();
+  const lines = content.split('\n');
+
+  let inPackagesSection = false;
+
+  for (const line of lines) {
+    // トップレベルセクションの検出（インデントなし）
+    if (!line.startsWith(' ') && !line.startsWith('\t')) {
+      if (line !== '') {
+        inPackagesSection = line === 'packages:';
+      }
+      continue;
+    }
+
+    if (!inPackagesSection) continue;
+
+    // パッケージキー行: ちょうど2スペースのインデント + キー + ":"
+    // 3スペース以上のインデントはパッケージのプロパティなのでスキップ
+    if (!line.startsWith('  ') || line.startsWith('   ')) continue;
+
+    const keyWithColon = line.slice(2);
+    if (!keyWithColon.endsWith(':')) continue;
+    // YAMLクォートを除去
+    const rawKey = keyWithColon.slice(0, -1).replace(/^['"]|['"]$/g, '').trim();
+    if (!rawKey) continue;
+
+    const parsed = parsePnpmPackageKey(rawKey);
+    if (!parsed) continue;
+
+    const { name, version } = parsed;
+    const mapKey = `${name}@${version}`;
+    if (!packages.has(mapKey)) {
+      packages.set(mapKey, { name, version });
+    }
+  }
+
+  return Array.from(packages.values());
+}
+
+export function readPnpmLock(lockfilePath: string): Package[] {
+  if (!fs.existsSync(lockfilePath)) {
+    throw new Error(`pnpm-lock.yaml not found at: ${lockfilePath}`);
+  }
+
+  const content = fs.readFileSync(lockfilePath, 'utf8');
+  return parsePnpmLock(content);
+}
+
 async function runWithConcurrencyLimit<T, R>(
   items: T[],
   concurrency: number,
@@ -275,12 +379,16 @@ async function runWithConcurrencyLimit<T, R>(
 
 export async function checkPackageAges(minAgeHours: number): Promise<void> {
   const cwd = process.cwd();
+  const pnpmLockPath = path.resolve(cwd, 'pnpm-lock.yaml');
   const yarnLockPath = path.resolve(cwd, 'yarn.lock');
   const packageLockPath = path.resolve(cwd, 'package-lock.json');
 
   let packages: Package[];
   let lockfileName: string;
-  if (fs.existsSync(yarnLockPath)) {
+  if (fs.existsSync(pnpmLockPath)) {
+    packages = readPnpmLock(pnpmLockPath);
+    lockfileName = 'pnpm-lock.yaml';
+  } else if (fs.existsSync(yarnLockPath)) {
     packages = readYarnLock(yarnLockPath);
     lockfileName = 'yarn.lock';
   } else {

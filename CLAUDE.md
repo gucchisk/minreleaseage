@@ -20,17 +20,21 @@ node test.js
 
 | ファイル | パッケージマネージャ |
 |---|---|
+| `pnpm-lock.yaml`（v5/v6/v7/v8/v9） | pnpm |
 | `yarn.lock`（Yarn Classic v1 形式） | Yarn 1.x |
 | `yarn.lock`（Yarn Berry v2+ 形式） | Yarn 2 / 3 / 4 |
 | `package-lock.json`（v1/v2/v3） | npm |
 
-`yarn.lock` が存在する場合は優先して使用し、なければ `package-lock.json` を使用する。
+優先順位: `pnpm-lock.yaml` → `yarn.lock` → `package-lock.json`
 
 ### データフロー
 
 ```
 bin/minreleaseage.js（CLI引数パース）
   └─ checkPackageAges(minAgeHours)  [index.js]
+       ├─ pnpm-lock.yaml が存在する場合: readPnpmLock()  → { name, version }[]
+       │    └─ parsePnpmLock(): packages: セクションのキーを解析
+       │         （v9: name@version / v6-8: /name@version / v5: /name/version）
        ├─ yarn.lock が存在する場合: readYarnLock()  → { name, version }[]
        │    ├─ __metadata: ブロックあり → parseYarnBerry()
        │    └─ なし              → parseYarnClassic()
@@ -56,3 +60,4 @@ bin/minreleaseage.js（CLI引数パース）
 - `testdata/npm/` — npm（`package-lock.json`）
 - `testdata/yarn-classic/` — Yarn Classic（`yarn.lock`）
 - `testdata/yarn-berry/` — Yarn Berry（`yarn.lock`）
+- `testdata/pnpm/` — pnpm（`pnpm-lock.yaml`）
