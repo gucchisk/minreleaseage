@@ -259,7 +259,6 @@ export function readYarnLock(lockfilePath: string): Package[] {
 //   v6-8: /lodash@4.17.21  /  /@scope/pkg@1.0.0  /  /react@18.2.0_react-dom@18.2.0
 //   v5:   /lodash/4.17.21  /  /@scope/pkg/1.0.0
 function parsePnpmPackageKey(rawKey: string): { name: string; version: string } | null {
-  // 先頭の / を除去
   const key = rawKey.startsWith('/') ? rawKey.slice(1) : rawKey;
 
   let name: string;

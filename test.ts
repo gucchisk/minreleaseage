@@ -640,6 +640,7 @@ describe('readYarnLock', () => {
     assert.ok(axios, 'axios が含まれていること');
     assert.equal(axios?.version, '1.15.2');
   });
+
 });
 
 // ---------------------------------------------------------------------------
@@ -780,7 +781,6 @@ describe('readPnpmLock', () => {
     const { filePath, tmpDir } = writeTempFile('pnpm-lock.yaml', V9_LINES.join('\n'));
     try {
       const packages = readPnpmLock(filePath);
-      // snapshots: 以降の lodash@4.17.21 は重複カウントされない
       assert.equal(packages.length, 2);
     } finally {
       removeTempDir(tmpDir);
@@ -796,3 +796,4 @@ describe('readPnpmLock', () => {
     assert.equal(axios?.version, '1.15.2');
   });
 });
+

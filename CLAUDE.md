@@ -14,7 +14,7 @@ node test.js
 
 ## アーキテクチャ
 
-このツールは lockfile（`yarn.lock` または `package-lock.json`）内の全パッケージが指定時間（時間単位）以上前にリリースされているかを npm registry で検証する CLI。サプライチェーン攻撃対策が目的。
+このツールは lockfile（`pnpm-lock.yaml`、`yarn.lock`、`package-lock.json`）内の全パッケージが指定時間（時間単位）以上前にリリースされているかを npm registry で検証する CLI。サプライチェーン攻撃対策が目的。
 
 ### 対応 lockfile
 
@@ -52,6 +52,9 @@ bin/minreleaseage.js（CLI引数パース）
 - **重複排除**: `name@version` をキーにした `Map` で同名・同バージョンを1つに集約
 - **終了コード**: 問題なし → `exit(0)`、古さ不足パッケージあり → `exit(1)`
 - **外部依存**: なし（Node.js 標準ライブラリ `fs`, `path`, `https` のみ使用）
+
+### 注意点
+- 機能追加・修正・削除を行った場合は、このCLAUDE.md、README.mdの更新を必ず確認して行う
 
 ### testdata/
 
