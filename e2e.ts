@@ -70,3 +70,23 @@ describe('yarn.lock Berry (integration)', () => {
     assert.ok(result.stderr.includes('FAIL:'), `stderr: ${result.stderr}`);
   });
 });
+
+// ---------------------------------------------------------------------------
+// pnpm (pnpm-lock.yaml v9)
+// ---------------------------------------------------------------------------
+
+describe('pnpm-lock.yaml (integration)', () => {
+  const cwd = path.join(__dirname, 'testdata', 'pnpm');
+
+  it('testdata/pnpm のパッケージが 0 時間以上前にリリースされている', () => {
+    const result = runCLI(cwd, '0');
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`);
+    assert.ok(result.stdout.includes('All'), `stdout: ${result.stdout}`);
+  });
+
+  it('testdata/pnpm のパッケージが 999999 時間以上前にはリリースされていない', () => {
+    const result = runCLI(cwd, '999999');
+    assert.equal(result.status, 1, `stdout: ${result.stdout}`);
+    assert.ok(result.stderr.includes('FAIL:'), `stderr: ${result.stderr}`);
+  });
+});
