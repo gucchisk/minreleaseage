@@ -98,6 +98,24 @@ describe('--dir オプション (integration)', () => {
     assert.equal(result.status, 1, `stdout: ${result.stdout}`);
     assert.ok(result.stderr.includes('--dir requires a path argument'), `stderr: ${result.stderr}`);
   });
+
+  it('--dir が重複している場合エラーになる', () => {
+    const result = spawnSync(process.execPath, [CLI, '0', '--dir', './testdata/npm', '--dir', './testdata/npm'], { encoding: 'utf8' });
+    assert.equal(result.status, 1, `stdout: ${result.stdout}`);
+    assert.ok(result.stderr.includes('--dir can only be specified once'), `stderr: ${result.stderr}`);
+  });
+
+  it('余分な引数がある場合エラーになる', () => {
+    const result = spawnSync(process.execPath, [CLI, '0', 'extra'], { encoding: 'utf8' });
+    assert.equal(result.status, 1, `stdout: ${result.stdout}`);
+    assert.ok(result.stderr.includes('unexpected argument'), `stderr: ${result.stderr}`);
+  });
+
+  it('未知のオプションがある場合エラーになる', () => {
+    const result = spawnSync(process.execPath, [CLI, '0', '--unknown'], { encoding: 'utf8' });
+    assert.equal(result.status, 1, `stdout: ${result.stdout}`);
+    assert.ok(result.stderr.includes('unexpected argument'), `stderr: ${result.stderr}`);
+  });
 });
 
 // ---------------------------------------------------------------------------
