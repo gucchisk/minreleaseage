@@ -7,12 +7,13 @@ A CLI tool to verify that every package in your lockfile was published to npm at
 Run with `npx` — no installation required:
 
 ```bash
-npx @gucchisk/minreleaseage <age_in_hours>
+npx @gucchisk/minreleaseage <age_in_hours> [--dir <path>]
 ```
 
-| Argument | Description |
+| Argument / Option | Description |
 |---|---|
 | `age_in_hours` | Minimum number of hours since each package was published |
+| `--dir <path>` | Directory containing the lockfile (default: current directory) |
 
 ### Example
 
@@ -20,6 +21,9 @@ npx @gucchisk/minreleaseage <age_in_hours>
 # Require all packages to have been published at least 24 hours ago
 cd my-project
 npx @gucchisk/minreleaseage 24
+
+# Or specify the directory directly without cd
+npx @gucchisk/minreleaseage 24 --dir ./my-project
 ```
 
 To pin the version, install as a dev dependency and add a script:
@@ -79,6 +83,9 @@ const { checkPackageAges } = require('@gucchisk/minreleaseage');
 
 // Throws / calls process.exit internally — best used as a CLI
 await checkPackageAges(24);
+
+// Optionally specify a directory
+await checkPackageAges(24, './my-project');
 ```
 
 ## How it works

@@ -11,6 +11,10 @@ function runCLI(cwd: string, minAgeHours: string): SpawnSyncReturns<string> {
   return spawnSync(process.execPath, [CLI, minAgeHours], { cwd, encoding: 'utf8' });
 }
 
+function runCLIWithDir(minAgeHours: string, dir: string): SpawnSyncReturns<string> {
+  return spawnSync(process.execPath, [CLI, minAgeHours, '--dir', dir], { encoding: 'utf8' });
+}
+
 // ---------------------------------------------------------------------------
 // npm (package-lock.json)
 // ---------------------------------------------------------------------------
@@ -68,6 +72,49 @@ describe('yarn.lock Berry (integration)', () => {
     const result = runCLI(cwd, '999999');
     assert.equal(result.status, 1, `stdout: ${result.stdout}`);
     assert.ok(result.stderr.includes('FAIL:'), `stderr: ${result.stderr}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// --dir オプション
+// ---------------------------------------------------------------------------
+
+describe('--dir オプション (integration)', () => {
+  it('--dir でnpmのtestdataディレクトリを指定できる', () => {
+    const dir = path.join(__dirname, 'testdata', 'npm');
+    const result = runCLIWithDir('0', dir);
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`);
+    assert.ok(result.stdout.includes('All'), `stdout: ${result.stdout}`);
+  });
+
+  it('--dir で相対パスを指定できる', () => {
+    const result = runCLIWithDir('0', './testdata/npm');
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`);
+    assert.ok(result.stdout.includes('All'), `stdout: ${result.stdout}`);
+  });
+
+  it('--dir に値がない場合エラーになる', () => {
+    const result = spawnSync(process.execPath, [CLI, '0', '--dir'], { encoding: 'utf8' });
+    assert.equal(result.status, 1, `stdout: ${result.stdout}`);
+    assert.ok(result.stderr.includes('--dir requires a path argument'), `stderr: ${result.stderr}`);
+  });
+
+  it('--dir が重複している場合エラーになる', () => {
+    const result = spawnSync(process.execPath, [CLI, '0', '--dir', './testdata/npm', '--dir', './testdata/npm'], { encoding: 'utf8' });
+    assert.equal(result.status, 1, `stdout: ${result.stdout}`);
+    assert.ok(result.stderr.includes('--dir can only be specified once'), `stderr: ${result.stderr}`);
+  });
+
+  it('余分な引数がある場合エラーになる', () => {
+    const result = spawnSync(process.execPath, [CLI, '0', 'extra'], { encoding: 'utf8' });
+    assert.equal(result.status, 1, `stdout: ${result.stdout}`);
+    assert.ok(result.stderr.includes('unexpected argument'), `stderr: ${result.stderr}`);
+  });
+
+  it('未知のオプションがある場合エラーになる', () => {
+    const result = spawnSync(process.execPath, [CLI, '0', '--unknown'], { encoding: 'utf8' });
+    assert.equal(result.status, 1, `stdout: ${result.stdout}`);
+    assert.ok(result.stderr.includes('unexpected argument'), `stderr: ${result.stderr}`);
   });
 });
 

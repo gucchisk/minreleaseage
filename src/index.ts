@@ -376,8 +376,8 @@ async function runWithConcurrencyLimit<T, R>(
   return results;
 }
 
-export async function checkPackageAges(minAgeHours: number): Promise<void> {
-  const cwd = process.cwd();
+export async function checkPackageAges(minAgeHours: number, targetDir?: string): Promise<void> {
+  const cwd = targetDir ? path.resolve(targetDir) : process.cwd();
   const pnpmLockPath = path.resolve(cwd, 'pnpm-lock.yaml');
   const yarnLockPath = path.resolve(cwd, 'yarn.lock');
   const packageLockPath = path.resolve(cwd, 'package-lock.json');
