@@ -6,10 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # CLI を直接実行（testdata/npm ディレクトリで実行する例）
-cd testdata/npm && node ../../bin/minreleaseage.js 24
+cd testdata/npm && node ../../dist/cli.js 24
 
-# テスト（package.json の scripts.test が定義されていれば）
-node test.js
+# --dir オプションで直接ディレクトリ指定
+node dist/cli.js 24 --dir ./testdata/npm
+
+# テスト
+npm test
+npm run test:unit
+npm run test:e2e
 ```
 
 ## アーキテクチャ
@@ -30,8 +35,8 @@ node test.js
 ### データフロー
 
 ```
-bin/minreleaseage.js（CLI引数パース）
-  └─ checkPackageAges(minAgeHours)  [index.js]
+dist/cli.js（CLI引数パース: <age_in_hours> [--dir <path>]）
+  └─ checkPackageAges(minAgeHours, targetDir?)  [index.js]
        ├─ pnpm-lock.yaml が存在する場合: readPnpmLock()  → { name, version }[]
        │    └─ parsePnpmLock(): packages: セクションのキーを解析
        │         （v9: name@version / v6-8: /name@version / v5: /name/version）
@@ -58,7 +63,7 @@ bin/minreleaseage.js（CLI引数パース）
 
 ### testdata/
 
-`testdata/` はツールの動作確認用のダミープロジェクト。`minreleaseage` は lockfile が存在するディレクトリで実行する。
+`testdata/` はツールの動作確認用のダミープロジェクト。`minreleaseage` は lockfile が存在するディレクトリで実行するか、`--dir` オプションで指定する。
 
 - `testdata/npm/` — npm（`package-lock.json`）
 - `testdata/yarn-classic/` — Yarn Classic（`yarn.lock`）
