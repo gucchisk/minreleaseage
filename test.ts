@@ -294,7 +294,7 @@ describe('fetchReleaseDate', () => {
 
     await assert.rejects(
       () => fetchReleaseDate('unknown-package', '1.0.0'),
-      /Package not found on npm registry: unknown-package@1\.0\.0/
+      /Package not found on registry https:\/\/registry\.npmjs\.org: unknown-package@1\.0\.0/
     );
   });
 
@@ -306,7 +306,7 @@ describe('fetchReleaseDate', () => {
 
     await assert.rejects(
       () => fetchReleaseDate('some-package', '1.0.0'),
-      /npm registry returned status 503 for some-package/
+      /Registry https:\/\/registry\.npmjs\.org returned status 503 for some-package/
     );
   });
 

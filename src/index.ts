@@ -130,13 +130,15 @@ export function fetchReleaseDate(
       return;
     }
 
+    const registryOrigin = new URL(effectiveRegistry).origin;
+
     https.get(url, options, (res) => {
       if (res.statusCode === 404) {
-        reject(new Error(`Package not found on npm registry: ${packageName}@${version}`));
+        reject(new Error(`Package not found on registry ${registryOrigin}: ${packageName}@${version}`));
         return;
       }
       if (res.statusCode !== 200) {
-        reject(new Error(`npm registry returned status ${res.statusCode} for ${packageName}`));
+        reject(new Error(`Registry ${registryOrigin} returned status ${res.statusCode} for ${packageName}`));
         return;
       }
 
