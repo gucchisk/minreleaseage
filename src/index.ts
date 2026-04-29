@@ -2,7 +2,6 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as http from 'http';
 import * as https from 'https';
 
 export interface Package {
@@ -25,11 +24,17 @@ const DEFAULT_REGISTRY = 'https://registry.npmjs.org';
 function extractRegistryFromResolvedUrl(resolvedUrl: string, packageName: string): string | undefined {
   try {
     const urlWithoutHash = resolvedUrl.split('#')[0];
-    const pkgPathSegment = `/${packageName}/`;
-    const idx = urlWithoutHash.indexOf(pkgPathSegment);
-    if (idx !== -1) {
-      const base = urlWithoutHash.slice(0, idx);
-      if (base.startsWith('http')) return base;
+    // スコープ付きパッケージの '/' は '%2F' にエンコードされている場合もあるため両形式を試す
+    const candidates = [
+      `/${packageName}/`,
+      `/${packageName.replace('/', '%2F')}/`,
+    ];
+    for (const segment of candidates) {
+      const idx = urlWithoutHash.indexOf(segment);
+      if (idx !== -1) {
+        const base = urlWithoutHash.slice(0, idx);
+        if (base.startsWith('http')) return base;
+      }
     }
   } catch {
     // ignore
@@ -65,17 +70,51 @@ function readYarnrcYmlRegistry(dir: string): string | undefined {
   return undefined;
 }
 
+// IPv4: ドット区切り4数値、IPv6: コロンを含む（new URL() はブラケットを除去して返す）
+function isIpAddress(hostname: string): boolean {
+  if (hostname.includes(':')) return true;
+  const parts = hostname.split('.');
+  return (
+    parts.length === 4 &&
+    parts.every((p) => /^\d+$/.test(p) && Number(p) >= 0 && Number(p) <= 255)
+  );
+}
+
+export function validateRegistryUrl(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`Invalid registry URL: ${url}`);
+  }
+
+  if (parsed.protocol !== 'https:') {
+    throw new Error(`Registry URL must use HTTPS: ${url}`);
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  if (!hostname) {
+    throw new Error(`Invalid registry URL: ${url}`);
+  }
+
+  // IPアドレス（IPv4・IPv6）を一律拒否。正当なレジストリはドメイン名を使う
+  if (isIpAddress(hostname)) {
+    throw new Error(`Blocked registry URL (IP address is not allowed): ${url}`);
+  }
+}
+
 export function fetchReleaseDate(
   packageName: string,
   version: string,
-  registryUrl: string = DEFAULT_REGISTRY
+  registryUrl?: string
 ): Promise<Date> {
   return new Promise((resolve, reject) => {
     // スコープ付きパッケージ (@scope/name) は / を %2F にエンコードする
     const encodedName = packageName.startsWith('@')
       ? packageName.replace('/', '%2F')
       : packageName;
-    const url = `${registryUrl}/${encodedName}`;
+    const effectiveRegistry = registryUrl ?? DEFAULT_REGISTRY;
+    const url = `${effectiveRegistry}/${encodedName}`;
 
     const options = {
       headers: {
@@ -84,8 +123,14 @@ export function fetchReleaseDate(
       },
     };
 
-    const transport = url.startsWith('https://') ? https : http;
-    transport.get(url, options, (res) => {
+    try {
+      validateRegistryUrl(effectiveRegistry);
+    } catch (e) {
+      reject(e as Error);
+      return;
+    }
+
+    https.get(url, options, (res) => {
       if (res.statusCode === 404) {
         reject(new Error(`Package not found on npm registry: ${packageName}@${version}`));
         return;

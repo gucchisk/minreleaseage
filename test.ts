@@ -8,7 +8,7 @@ import * as path from 'node:path';
 import https = require('https');
 import { EventEmitter } from 'events';
 
-import { readPackageLock, readYarnLock, readPnpmLock, fetchReleaseDate } from './src/index';
+import { readPackageLock, readYarnLock, readPnpmLock, fetchReleaseDate, validateRegistryUrl } from './src/index';
 
 // ---------------------------------------------------------------------------
 // ヘルパー
@@ -364,6 +364,13 @@ describe('fetchReleaseDate', () => {
     await assert.rejects(
       () => fetchReleaseDate('some-package', '1.0.0'),
       /Network error fetching some-package: ECONNREFUSED/
+    );
+  });
+
+  it('http:// のレジストリURLを指定した場合はエラーを返す', async () => {
+    await assert.rejects(
+      () => fetchReleaseDate('some-package', '1.0.0', 'http://insecure-registry.example.com'),
+      /Registry URL must use HTTPS: http:\/\/insecure-registry\.example\.com/
     );
   });
 });
@@ -918,6 +925,88 @@ describe('readPackageLock レジストリ設定', () => {
     } finally {
       removeTempDir(tmpDir);
     }
+  });
+
+  it('スコープ付きパッケージの resolved URL で "/" がエンコードされていてもレジストリURLを取得できる', () => {
+    const { filePath, tmpDir } = writeTempLockfile({
+      lockfileVersion: 3,
+      packages: {
+        '': { name: 'root', version: '1.0.0' },
+        'node_modules/@scope/pkg': {
+          version: '1.0.0',
+          resolved: 'https://my-registry.example.com/@scope%2Fpkg/-/pkg-1.0.0.tgz',
+        },
+      },
+    });
+    try {
+      const packages = readPackageLock(filePath);
+      assert.equal(packages.length, 1);
+      assert.equal(packages[0].registryUrl, 'https://my-registry.example.com');
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateRegistryUrl
+// ---------------------------------------------------------------------------
+
+describe('validateRegistryUrl', () => {
+  // --- エラーになるべきケース ---
+
+  it('http:// はエラー', () => {
+    assert.throws(() => validateRegistryUrl('http://registry.npmjs.org'), /Registry URL must use HTTPS/);
+  });
+
+  it('ftp:// はエラー', () => {
+    assert.throws(() => validateRegistryUrl('ftp://registry.npmjs.org'), /Registry URL must use HTTPS/);
+  });
+
+  it('パース不可能なURLはエラー', () => {
+    assert.throws(() => validateRegistryUrl('not-a-url'), /Invalid registry URL/);
+  });
+
+  it('IPv4アドレス指定はエラー', () => {
+    assert.throws(() => validateRegistryUrl('https://127.0.0.1'), /Blocked registry URL \(IP address is not allowed\)/);
+  });
+
+  it('IPv4プライベートアドレスはエラー', () => {
+    assert.throws(() => validateRegistryUrl('https://192.168.0.1'), /Blocked registry URL \(IP address is not allowed\)/);
+  });
+
+  it('IPv4リンクローカル（AWS IMDS）はエラー', () => {
+    assert.throws(() => validateRegistryUrl('https://169.254.169.254'), /Blocked registry URL \(IP address is not allowed\)/);
+  });
+
+  it('パブリックIPv4もエラー', () => {
+    assert.throws(() => validateRegistryUrl('https://8.8.8.8'), /Blocked registry URL \(IP address is not allowed\)/);
+  });
+
+  it('IPv6アドレス指定はエラー', () => {
+    assert.throws(() => validateRegistryUrl('https://[::1]'), /Blocked registry URL \(IP address is not allowed\)/);
+  });
+
+  it('パブリックIPv6もエラー', () => {
+    assert.throws(() => validateRegistryUrl('https://[2001:db8::1]'), /Blocked registry URL \(IP address is not allowed\)/);
+  });
+
+  // --- 通過すべきケース ---
+
+  it('https://registry.npmjs.org は通過', () => {
+    assert.doesNotThrow(() => validateRegistryUrl('https://registry.npmjs.org'));
+  });
+
+  it('https://registry.yarnpkg.com は通過', () => {
+    assert.doesNotThrow(() => validateRegistryUrl('https://registry.yarnpkg.com'));
+  });
+
+  it('カスタムドメインは通過', () => {
+    assert.doesNotThrow(() => validateRegistryUrl('https://my-registry.example.com'));
+  });
+
+  it('パス付きカスタムレジストリは通過', () => {
+    assert.doesNotThrow(() => validateRegistryUrl('https://my-registry.example.com/path/to/npm'));
   });
 });
 
