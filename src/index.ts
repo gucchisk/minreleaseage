@@ -2,11 +2,13 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import * as http from 'http';
 import * as https from 'https';
 
 export interface Package {
   name: string;
   version: string;
+  registryUrl?: string;
 }
 
 interface TooNewPackage {
@@ -16,13 +18,64 @@ interface TooNewPackage {
   releasedAt: string;
 }
 
-export function fetchReleaseDate(packageName: string, version: string): Promise<Date> {
+const DEFAULT_REGISTRY = 'https://registry.npmjs.org';
+
+// resolved URL (e.g. https://my-registry.com/path/pkgname/-/pkgname-1.0.0.tgz) から
+// レジストリベースURL (e.g. https://my-registry.com/path) を抽出する
+function extractRegistryFromResolvedUrl(resolvedUrl: string, packageName: string): string | undefined {
+  try {
+    const urlWithoutHash = resolvedUrl.split('#')[0];
+    const pkgPathSegment = `/${packageName}/`;
+    const idx = urlWithoutHash.indexOf(pkgPathSegment);
+    if (idx !== -1) {
+      const base = urlWithoutHash.slice(0, idx);
+      if (base.startsWith('http')) return base;
+    }
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
+// .npmrc の registry= からレジストリURLを読み取る
+function readNpmrcRegistry(dir: string): string | undefined {
+  const npmrcPath = path.join(dir, '.npmrc');
+  if (!fs.existsSync(npmrcPath)) return undefined;
+  const content = fs.readFileSync(npmrcPath, 'utf8');
+  for (const line of content.split(/\r?\n/)) {
+    const match = line.match(/^\s*registry\s*=\s*(.+?)\s*$/);
+    if (match) {
+      return match[1].replace(/\/$/, '');
+    }
+  }
+  return undefined;
+}
+
+// .yarnrc.yml の npmRegistryServer: からレジストリURLを読み取る
+function readYarnrcYmlRegistry(dir: string): string | undefined {
+  const yarnrcPath = path.join(dir, '.yarnrc.yml');
+  if (!fs.existsSync(yarnrcPath)) return undefined;
+  const content = fs.readFileSync(yarnrcPath, 'utf8');
+  for (const line of content.split(/\r?\n/)) {
+    const match = line.match(/^\s*npmRegistryServer\s*:\s*["']?(.+?)["']?\s*$/);
+    if (match) {
+      return match[1].replace(/\/$/, '');
+    }
+  }
+  return undefined;
+}
+
+export function fetchReleaseDate(
+  packageName: string,
+  version: string,
+  registryUrl: string = DEFAULT_REGISTRY
+): Promise<Date> {
   return new Promise((resolve, reject) => {
     // スコープ付きパッケージ (@scope/name) は / を %2F にエンコードする
     const encodedName = packageName.startsWith('@')
       ? packageName.replace('/', '%2F')
       : packageName;
-    const url = `https://registry.npmjs.org/${encodedName}`;
+    const url = `${registryUrl}/${encodedName}`;
 
     const options = {
       headers: {
@@ -31,7 +84,8 @@ export function fetchReleaseDate(packageName: string, version: string): Promise<
       },
     };
 
-    https.get(url, options, (res) => {
+    const transport = url.startsWith('https://') ? https : http;
+    transport.get(url, options, (res) => {
       if (res.statusCode === 404) {
         reject(new Error(`Package not found on npm registry: ${packageName}@${version}`));
         return;
@@ -84,24 +138,27 @@ export function readPackageLock(lockfilePath: string): Package[] {
 
       // pkgInfo.name があればそれを使用、なければパスの最後の node_modules/ 以降を取得
       const name = (pkgInfo.name as string | undefined) || pkgPath.replace(/^.*node_modules\//, '');
+      if (!name) continue;
 
-      if (name) {
-        const key = `${name}@${version}`;
-        if (!packages.has(key)) {
-          packages.set(key, { name, version });
-        }
+      const key = `${name}@${version}`;
+      if (!packages.has(key)) {
+        const resolved = pkgInfo.resolved as string | undefined;
+        const registryUrl = resolved ? extractRegistryFromResolvedUrl(resolved, name) : undefined;
+        const pkg: Package = { name, version };
+        if (registryUrl) pkg.registryUrl = registryUrl;
+        packages.set(key, pkg);
       }
     }
   } else if (lockData.dependencies) {
     // lockfileVersion 1 は dependencies フィールドを使用
-    collectDependencies(lockData.dependencies, packages);
+    collectDependenciesPackageLock(lockData.dependencies, packages);
   }
 
   return Array.from(packages.values());
 }
 
-function collectDependencies(
-  dependencies: Record<string, { version?: string; dependencies?: Record<string, unknown> }>,
+function collectDependenciesPackageLock(
+  dependencies: Record<string, { version?: string; resolved?: string; dependencies?: Record<string, unknown> }>,
   packages: Map<string, Package>
 ): void {
   for (const [name, info] of Object.entries(dependencies)) {
@@ -109,12 +166,15 @@ function collectDependencies(
     if (name && version) {
       const key = `${name}@${version}`;
       if (!packages.has(key)) {
-        packages.set(key, { name, version });
+        const registryUrl = info.resolved ? extractRegistryFromResolvedUrl(info.resolved, name) : undefined;
+        const pkg: Package = { name, version };
+        if (registryUrl) pkg.registryUrl = registryUrl;
+        packages.set(key, pkg);
       }
     }
     if (info.dependencies) {
-      collectDependencies(
-        info.dependencies as Record<string, { version?: string; dependencies?: Record<string, unknown> }>,
+      collectDependenciesPackageLock(
+        info.dependencies as Record<string, { version?: string; resolved?: string; dependencies?: Record<string, unknown> }>,
         packages
       );
     }
@@ -139,21 +199,37 @@ function parseYarnClassic(content: string): Package[] {
 
   let currentDescriptors: string[] = [];
   let currentVersion: string | null = null;
+  let currentResolved: string | null = null;
 
   function flushBlock(): void {
     if (currentVersion && currentDescriptors.length > 0) {
+      // 最初の有効なdescriptorからパッケージ名を取得し、registryUrlを抽出する
+      let registryUrl: string | undefined;
+      if (currentResolved) {
+        for (const descriptor of currentDescriptors) {
+          const name = extractPackageNameFromDescriptor(descriptor);
+          if (name) {
+            registryUrl = extractRegistryFromResolvedUrl(currentResolved, name);
+            break;
+          }
+        }
+      }
+
       for (const descriptor of currentDescriptors) {
         const name = extractPackageNameFromDescriptor(descriptor);
         if (name) {
           const key = `${name}@${currentVersion}`;
           if (!packages.has(key)) {
-            packages.set(key, { name, version: currentVersion as string });
+            const pkg: Package = { name, version: currentVersion as string };
+            if (registryUrl) pkg.registryUrl = registryUrl;
+            packages.set(key, pkg);
           }
         }
       }
     }
     currentDescriptors = [];
     currentVersion = null;
+    currentResolved = null;
   }
 
   for (const line of lines) {
@@ -171,10 +247,13 @@ function parseYarnClassic(content: string): Package[] {
         if (cleaned) currentDescriptors.push(cleaned);
       }
     } else {
-      // version "x.y.z"
       const versionMatch = line.match(/^\s+version "(.+)"$/);
       if (versionMatch) {
         currentVersion = versionMatch[1];
+      }
+      const resolvedMatch = line.match(/^\s+resolved "(.+)"$/);
+      if (resolvedMatch) {
+        currentResolved = resolvedMatch[1];
       }
     }
   }
@@ -183,7 +262,7 @@ function parseYarnClassic(content: string): Package[] {
   return Array.from(packages.values());
 }
 
-function parseYarnBerry(content: string): Package[] {
+function parseYarnBerry(content: string, registryUrl: string | undefined): Package[] {
   const packages = new Map<string, Package>();
   const lines = content.split(/\r?\n/);
 
@@ -198,7 +277,9 @@ function parseYarnBerry(content: string): Package[] {
       if (name) {
         const key = `${name}@${currentVersion}`;
         if (!packages.has(key)) {
-          packages.set(key, { name, version: currentVersion as string });
+          const pkg: Package = { name, version: currentVersion as string };
+          if (registryUrl) pkg.registryUrl = registryUrl;
+          packages.set(key, pkg);
         }
       }
     }
@@ -248,7 +329,8 @@ export function readYarnLock(lockfilePath: string): Package[] {
 
   // __metadata: ブロックがあればYarn Berry形式
   if (content.includes('__metadata:')) {
-    return parseYarnBerry(content);
+    const registryUrl = readYarnrcYmlRegistry(path.dirname(lockfilePath));
+    return parseYarnBerry(content, registryUrl);
   }
   return parseYarnClassic(content);
 }
@@ -307,7 +389,7 @@ function parsePnpmPackageKey(rawKey: string): { name: string; version: string } 
   return { name, version };
 }
 
-function parsePnpmLock(content: string): Package[] {
+function parsePnpmLock(content: string, registryUrl: string | undefined): Package[] {
   const packages = new Map<string, Package>();
   const lines = content.split(/\r?\n/);
 
@@ -340,7 +422,9 @@ function parsePnpmLock(content: string): Package[] {
     const { name, version } = parsed;
     const mapKey = `${name}@${version}`;
     if (!packages.has(mapKey)) {
-      packages.set(mapKey, { name, version });
+      const pkg: Package = { name, version };
+      if (registryUrl) pkg.registryUrl = registryUrl;
+      packages.set(mapKey, pkg);
     }
   }
 
@@ -353,7 +437,8 @@ export function readPnpmLock(lockfilePath: string): Package[] {
   }
 
   const content = fs.readFileSync(lockfilePath, 'utf8');
-  return parsePnpmLock(content);
+  const registryUrl = readNpmrcRegistry(path.dirname(lockfilePath));
+  return parsePnpmLock(content, registryUrl);
 }
 
 async function runWithConcurrencyLimit<T, R>(
@@ -408,10 +493,11 @@ export async function checkPackageAges(minAgeHours: number, targetDir?: string):
 
   const CONCURRENCY = 10;
 
-  await runWithConcurrencyLimit(packages, CONCURRENCY, async ({ name, version }) => {
+  await runWithConcurrencyLimit(packages, CONCURRENCY, async (pkg) => {
+    const { name, version, registryUrl } = pkg;
     let releaseDate: Date;
     try {
-      releaseDate = await fetchReleaseDate(name, version);
+      releaseDate = await fetchReleaseDate(name, version, registryUrl);
     } catch (err) {
       process.stderr.write(`Warning: Could not fetch release date for ${name}@${version}: ${(err as Error).message}\n`);
       return;
@@ -426,9 +512,9 @@ export async function checkPackageAges(minAgeHours: number, targetDir?: string):
   });
 
   if (tooNewPackages.length > 0) {
-    for (const pkg of tooNewPackages) {
+    for (const tooNewPkg of tooNewPackages) {
       process.stderr.write(
-        `FAIL: ${pkg.name}@${pkg.version} was released ${pkg.ageHours} hours ago (${pkg.releasedAt}), minimum required: ${minAgeHours} hours\n`
+        `FAIL: ${tooNewPkg.name}@${tooNewPkg.version} was released ${tooNewPkg.ageHours} hours ago (${tooNewPkg.releasedAt}), minimum required: ${minAgeHours} hours\n`
       );
     }
     process.exit(1);
