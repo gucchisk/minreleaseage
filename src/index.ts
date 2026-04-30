@@ -532,6 +532,20 @@ export async function checkPackageAges(minAgeHours: number, targetDir?: string):
     process.exit(0);
   }
 
+  // フェッチ開始前に全パッケージのレジストリURLを検証する
+  const seenRegistryUrls = new Set<string>();
+  for (const pkg of packages) {
+    const url = pkg.registryUrl ?? DEFAULT_REGISTRY;
+    if (seenRegistryUrls.has(url)) continue;
+    seenRegistryUrls.add(url);
+    try {
+      validateRegistryUrl(url);
+    } catch (err) {
+      process.stderr.write(`Error: ${(err as Error).message}\n`);
+      process.exit(1);
+    }
+  }
+
   process.stdout.write(`Checking ${packages.length} packages (minimum age: ${minAgeHours} hours)...\n`);
 
   const nowMs = Date.now();

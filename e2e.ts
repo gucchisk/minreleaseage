@@ -2,6 +2,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync, SpawnSyncReturns } from 'node:child_process';
 
@@ -135,5 +137,46 @@ describe('pnpm-lock.yaml (integration)', () => {
     const result = runCLI(cwd, '999999');
     assert.equal(result.status, 1, `stdout: ${result.stdout}`);
     assert.ok(result.stderr.includes('FAIL:'), `stderr: ${result.stderr}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 不正なレジストリURL
+// ---------------------------------------------------------------------------
+
+describe('invalid registry URL (integration)', () => {
+  it('.npmrc に http:// レジストリが設定されている場合、exit(1) でエラー終了する', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minreleaseage-e2e-'));
+    try {
+      // pnpm-lock.yaml を最小構成でコピー
+      fs.copyFileSync(
+        path.join(__dirname, 'testdata', 'pnpm', 'pnpm-lock.yaml'),
+        path.join(tmpDir, 'pnpm-lock.yaml')
+      );
+      fs.writeFileSync(path.join(tmpDir, '.npmrc'), 'registry=http://insecure.example.com\n', 'utf8');
+      const result = runCLI(tmpDir, '0');
+      assert.equal(result.status, 1, `stdout: ${result.stdout}`);
+      assert.ok(result.stderr.includes('Error:'), `stderr: ${result.stderr}`);
+      assert.ok(result.stderr.includes('HTTPS'), `stderr: ${result.stderr}`);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  it('.npmrc に IPアドレスのレジストリが設定されている場合、exit(1) でエラー終了する', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minreleaseage-e2e-'));
+    try {
+      fs.copyFileSync(
+        path.join(__dirname, 'testdata', 'pnpm', 'pnpm-lock.yaml'),
+        path.join(tmpDir, 'pnpm-lock.yaml')
+      );
+      fs.writeFileSync(path.join(tmpDir, '.npmrc'), 'registry=https://192.168.1.1\n', 'utf8');
+      const result = runCLI(tmpDir, '0');
+      assert.equal(result.status, 1, `stdout: ${result.stdout}`);
+      assert.ok(result.stderr.includes('Error:'), `stderr: ${result.stderr}`);
+      assert.ok(result.stderr.includes('IP address'), `stderr: ${result.stderr}`);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
   });
 });
