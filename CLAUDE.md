@@ -19,7 +19,7 @@ npm run test:e2e
 
 ## アーキテクチャ
 
-このツールは lockfile（`pnpm-lock.yaml`、`yarn.lock`、`package-lock.json`）内の全パッケージが指定時間（時間単位）以上前にリリースされているかを npm registry で検証する CLI。サプライチェーン攻撃対策が目的。
+このツールは lockfile（`pnpm-lock.yaml`、`yarn.lock`、`package-lock.json`）内の全パッケージが指定時間（時間単位）以上前にリリースされているかを registry で検証する CLI。サプライチェーン攻撃対策が目的。
 
 ### 対応 lockfile
 
@@ -37,25 +37,41 @@ npm run test:e2e
 ```
 dist/cli.js（CLI引数パース: <age_in_hours> [--dir <path>]）
   └─ checkPackageAges(minAgeHours, targetDir?)  [index.js]
-       ├─ pnpm-lock.yaml が存在する場合: readPnpmLock()  → { name, version }[]
+       ├─ pnpm-lock.yaml が存在する場合: readPnpmLock()  → { name, version, registryUrl? }[]
+       │    ├─ readNpmrcRegistry(): .npmrc の registry= からレジストリURLを取得
        │    └─ parsePnpmLock(): packages: セクションのキーを解析
        │         （v9: name@version / v6-8: /name@version / v5: /name/version）
-       ├─ yarn.lock が存在する場合: readYarnLock()  → { name, version }[]
-       │    ├─ __metadata: ブロックあり → parseYarnBerry()
+       ├─ yarn.lock が存在する場合: readYarnLock()  → { name, version, registryUrl? }[]
+       │    ├─ __metadata: ブロックあり → readYarnrcYmlRegistry() で .yarnrc.yml の
+       │    │                             npmRegistryServer: を取得 → parseYarnBerry()
        │    └─ なし              → parseYarnClassic()
-       ├─ それ以外: readPackageLock()  → { name, version }[]
+       │         └─ resolved フィールドの URL からレジストリURLを抽出
+       ├─ それ以外: readPackageLock()  → { name, version, registryUrl? }[]
        │    ├─ lockfileVersion 2+: packages フィールドを使用
+       │    │    └─ resolved フィールドの URL からレジストリURLを抽出
        │    └─ lockfileVersion 1: dependencies フィールドを再帰的に収集
+       │         └─ resolved フィールドの URL からレジストリURLを抽出
        └─ runWithConcurrencyLimit(packages, 10, ...)  → 並行数10でフェッチ
-            └─ fetchReleaseDate(name, version)
-                 └─ GET https://registry.npmjs.org/<name>  の time[version] を参照
+            └─ fetchReleaseDate(name, version, registryUrl?)
+                 └─ GET <registryUrl>/<name>  の time[version] を参照
+                      （registryUrl 未指定時は https://registry.npmjs.org）
 ```
 
 ### 重要な実装詳細
 
 - **スコープ付きパッケージ**: `@scope/name` 形式は `/` を `%2F` にエンコードして registry に問い合わせる
 - **重複排除**: `name@version` をキーにした `Map` で同名・同バージョンを1つに集約
-- **終了コード**: 問題なし → `exit(0)`、古さ不足パッケージあり → `exit(1)`
+- **終了コード**: 問題なし → `exit(0)`、古さ不足パッケージあり → `exit(1)`、不正なレジストリURL → `exit(1)`
+- **レジストリURL解決**: lockfile種別により取得元が異なる（下表）。フェッチ開始前に全パッケージのレジストリURLを一括検証し、HTTPS以外・IPアドレス指定は即 `exit(1)` で終了
+
+  | lockfile | 取得元 |
+  |---|---|
+  | `package-lock.json` | 各エントリの `resolved` フィールドURL |
+  | `yarn.lock`（Classic）| 各エントリの `resolved` フィールドURL |
+  | `yarn.lock`（Berry）| `.yarnrc.yml` の `npmRegistryServer:` |
+  | `pnpm-lock.yaml` | `.npmrc` の `registry=` |
+
+  いずれも未設定の場合は `https://registry.npmjs.org` をデフォルトとして使用
 - **外部依存**: なし（Node.js 標準ライブラリ `fs`, `path`, `https` のみ使用）
 
 ### 注意点

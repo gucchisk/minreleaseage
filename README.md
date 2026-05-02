@@ -92,11 +92,25 @@ await checkPackageAges(24, './my-project');
 
 1. Reads all packages from the lockfile in the current directory.
 2. Deduplicates entries by `name@version`.
-3. Fetches the publish timestamp from `https://registry.npmjs.org/<name>` (10 concurrent requests).
-4. Compares each timestamp against `Date.now() - minAgeHours`.
-5. Reports failures to stderr and exits with code `1` if any package is too new.
+3. Determines the registry URL for each package (see [Registry selection](#registry-selection) below).
+4. Fetches the publish timestamp from the registry (10 concurrent requests).
+5. Compares each timestamp against `Date.now() - minAgeHours`.
+6. Reports failures to stderr and exits with code `1` if any package is too new.
 
 No external dependencies — only Node.js built-ins (`fs`, `path`, `https`).
+
+## Registry selection
+
+The registry used to fetch package metadata is determined per lockfile type. Only HTTPS registries are supported.
+
+| Lockfile | Registry source |
+|---|---|
+| `package-lock.json` | `resolved` field URL in each package entry |
+| `yarn.lock` (Classic) | `resolved` field URL in each package entry |
+| `yarn.lock` (Berry) | `npmRegistryServer` in `.yarnrc.yml` |
+| `pnpm-lock.yaml` | `registry` in `.npmrc` |
+
+If a registry URL cannot be determined (field absent or file not found), `https://registry.npmjs.org` is used as the default.
 
 ## License
 
