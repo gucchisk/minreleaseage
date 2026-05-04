@@ -159,6 +159,24 @@ describe('期間単位指定 (integration)', () => {
     assert.equal(result.status, 1, `stdout: ${result.stdout}`);
     assert.ok(result.stderr.includes('Error:'), `stderr: ${result.stderr}`);
   });
+
+  it('複合単位 1dw はエラーになる', () => {
+    const result = runCLI(cwd, '1dw');
+    assert.equal(result.status, 1, `stdout: ${result.stdout}`);
+    assert.ok(result.stderr.includes('Error:'), `stderr: ${result.stderr}`);
+  });
+
+  it('複合単位 1wd はエラーになる', () => {
+    const result = runCLI(cwd, '1wd');
+    assert.equal(result.status, 1, `stdout: ${result.stdout}`);
+    assert.ok(result.stderr.includes('Error:'), `stderr: ${result.stderr}`);
+  });
+
+  it('複合単位 24hh はエラーになる', () => {
+    const result = runCLI(cwd, '24hh');
+    assert.equal(result.status, 1, `stdout: ${result.stdout}`);
+    assert.ok(result.stderr.includes('Error:'), `stderr: ${result.stderr}`);
+  });
 });
 
 // ---------------------------------------------------------------------------

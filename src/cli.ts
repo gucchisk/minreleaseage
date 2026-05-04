@@ -10,17 +10,13 @@ const USAGE = 'Usage: minreleaseage <age> [--dir <path>]\n' +
   '         h=hours (default), d=days, w=weeks\n';
 
 function parseDurationToHours(arg: string): number {
-  const lower = arg.toLowerCase();
-  if (lower.endsWith('w')) {
-    return parseFloat(lower.slice(0, -1)) * 168;
-  }
-  if (lower.endsWith('d')) {
-    return parseFloat(lower.slice(0, -1)) * 24;
-  }
-  if (lower.endsWith('h')) {
-    return parseFloat(lower.slice(0, -1));
-  }
-  return Number(arg); // parseFloat と異なり '1x' → NaN になる
+  const m = arg.trim().match(/^(\d+(?:\.\d+)?)([hdw])?$/i);
+  if (!m) return NaN;
+  const n = Number(m[1]);
+  const unit = (m[2] ?? 'h').toLowerCase();
+  if (unit === 'd') return n * 24;
+  if (unit === 'w') return n * 168;
+  return n;
 }
 
 if (args.filter((a) => a === '--dir').length > 1) {
