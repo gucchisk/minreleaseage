@@ -7,12 +7,12 @@ A CLI tool to verify that every package in your lockfile was published to npm at
 Run with `npx` — no installation required:
 
 ```bash
-npx @gucchisk/minreleaseage <age_in_hours> [--dir <path>]
+npx @gucchisk/minreleaseage <age> [--dir <path>]
 ```
 
 | Argument / Option | Description |
 |---|---|
-| `age_in_hours` | Minimum number of hours since each package was published |
+| `age` | Minimum time since each package was published. Supports `h` (hours), `d` (days), `w` (weeks), or a plain number (treated as hours). |
 | `--dir <path>` | Directory containing the lockfile (default: current directory) |
 
 ### Example
@@ -20,10 +20,17 @@ npx @gucchisk/minreleaseage <age_in_hours> [--dir <path>]
 ```bash
 # Require all packages to have been published at least 24 hours ago
 cd my-project
+npx @gucchisk/minreleaseage 24h
+
+# Equivalent: plain number is treated as hours (backward compatible)
 npx @gucchisk/minreleaseage 24
 
+# Using days or weeks
+npx @gucchisk/minreleaseage 1d   # 1 day  = 24 hours
+npx @gucchisk/minreleaseage 1w   # 1 week = 168 hours
+
 # Or specify the directory directly without cd
-npx @gucchisk/minreleaseage 24 --dir ./my-project
+npx @gucchisk/minreleaseage 1d --dir ./my-project
 ```
 
 To pin the version, install as a dev dependency and add a script:
@@ -35,7 +42,7 @@ npm install --save-dev @gucchisk/minreleaseage
 ```json
 {
   "scripts": {
-    "check-pkg-age": "minreleaseage 24"
+    "check-pkg-age": "minreleaseage 1d"
   }
 }
 ```
@@ -73,7 +80,7 @@ Add a step to your pipeline to block deployments when a recently-published packa
 
 ```yaml
 - name: Check minimum package release age
-  run: npx @gucchisk/minreleaseage 24
+  run: npx @gucchisk/minreleaseage 1d
 ```
 
 ## Programmatic API

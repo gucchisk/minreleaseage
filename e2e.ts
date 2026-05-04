@@ -121,6 +121,65 @@ describe('--dir オプション (integration)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 期間単位指定 (h/d/w)
+// ---------------------------------------------------------------------------
+
+describe('期間単位指定 (integration)', () => {
+  const cwd = path.join(__dirname, 'testdata', 'npm');
+
+  it('0h は 0時間と同じで成功する', () => {
+    const result = runCLI(cwd, '0h');
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`);
+  });
+
+  it('1d は 24時間と同等で成功する', () => {
+    const result = runCLI(cwd, '1d');
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`);
+  });
+
+  it('1w は 168時間と同等で成功する', () => {
+    const result = runCLI(cwd, '1w');
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`);
+  });
+
+  it('999999d は失敗する', () => {
+    const result = runCLI(cwd, '999999d');
+    assert.equal(result.status, 1, `stdout: ${result.stdout}`);
+    assert.ok(result.stderr.includes('FAIL:'), `stderr: ${result.stderr}`);
+  });
+
+  it('不正な単位 1x はエラーになる', () => {
+    const result = runCLI(cwd, '1x');
+    assert.equal(result.status, 1, `stdout: ${result.stdout}`);
+    assert.ok(result.stderr.includes('Error:'), `stderr: ${result.stderr}`);
+  });
+
+  it('数値なし abc はエラーになる', () => {
+    const result = runCLI(cwd, 'abc');
+    assert.equal(result.status, 1, `stdout: ${result.stdout}`);
+    assert.ok(result.stderr.includes('Error:'), `stderr: ${result.stderr}`);
+  });
+
+  it('複合単位 1dw はエラーになる', () => {
+    const result = runCLI(cwd, '1dw');
+    assert.equal(result.status, 1, `stdout: ${result.stdout}`);
+    assert.ok(result.stderr.includes('Error:'), `stderr: ${result.stderr}`);
+  });
+
+  it('複合単位 1wd はエラーになる', () => {
+    const result = runCLI(cwd, '1wd');
+    assert.equal(result.status, 1, `stdout: ${result.stdout}`);
+    assert.ok(result.stderr.includes('Error:'), `stderr: ${result.stderr}`);
+  });
+
+  it('複合単位 24hh はエラーになる', () => {
+    const result = runCLI(cwd, '24hh');
+    assert.equal(result.status, 1, `stdout: ${result.stdout}`);
+    assert.ok(result.stderr.includes('Error:'), `stderr: ${result.stderr}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // pnpm (pnpm-lock.yaml v9)
 // ---------------------------------------------------------------------------
 

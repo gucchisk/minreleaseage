@@ -5,7 +5,19 @@ import { checkPackageAges } from './index';
 
 const args = process.argv.slice(2);
 
-const USAGE = 'Usage: minreleaseage <age_in_hours> [--dir <path>]\n';
+const USAGE = 'Usage: minreleaseage <age> [--dir <path>]\n' +
+  '  <age>  Duration with optional unit: 24, 24h, 1d, 1w\n' +
+  '         h=hours (default), d=days, w=weeks\n';
+
+function parseDurationToHours(arg: string): number {
+  const m = arg.trim().match(/^(\d+(?:\.\d+)?)([hdw])?$/i);
+  if (!m) return NaN;
+  const n = Number(m[1]);
+  const unit = (m[2] ?? 'h').toLowerCase();
+  if (unit === 'd') return n * 24;
+  if (unit === 'w') return n * 168;
+  return n;
+}
 
 if (args.filter((a) => a === '--dir').length > 1) {
   process.stderr.write('Error: --dir can only be specified once\n');
@@ -36,10 +48,10 @@ if (args.length > 1 || args[0].startsWith('-')) {
   process.exit(1);
 }
 
-const minAgeHours = parseFloat(args[0]);
+const minAgeHours = parseDurationToHours(args[0]);
 
 if (isNaN(minAgeHours) || minAgeHours < 0) {
-  process.stderr.write(`Error: <age_in_hours> must be a non-negative number, got: ${args[0]}\n`);
+  process.stderr.write(`Error: <age> must be a non-negative number (e.g. 24, 24h, 1d, 1w), got: ${args[0]}\n`);
   process.exit(1);
 }
 

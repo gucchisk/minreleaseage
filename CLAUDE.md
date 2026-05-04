@@ -6,10 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # CLI を直接実行（testdata/npm ディレクトリで実行する例）
-cd testdata/npm && node ../../dist/cli.js 24
+cd testdata/npm && node ../../dist/cli.js 1d
 
 # --dir オプションで直接ディレクトリ指定
-node dist/cli.js 24 --dir ./testdata/npm
+node dist/cli.js 1d --dir ./testdata/npm
 
 # テスト
 npm test
@@ -35,7 +35,7 @@ npm run test:e2e
 ### データフロー
 
 ```
-dist/cli.js（CLI引数パース: <age_in_hours> [--dir <path>]）
+dist/cli.js（CLI引数パース: <age> [--dir <path>]、parseDurationToHours() で時間に変換）
   └─ checkPackageAges(minAgeHours, targetDir?)  [index.js]
        ├─ pnpm-lock.yaml が存在する場合: readPnpmLock()  → { name, version, registryUrl? }[]
        │    ├─ readNpmrcRegistry(): .npmrc の registry= からレジストリURLを取得
