@@ -1,5 +1,7 @@
 # minreleaseage
 
+[![Test](https://github.com/gucchisk/minreleaseage/actions/workflows/test.yml/badge.svg)](https://github.com/gucchisk/minreleaseage/actions/workflows/test.yml)
+
 A CLI tool to verify that every package in your lockfile was published to npm at least N hours ago — helping protect against [supply-chain attacks](https://en.wikipedia.org/wiki/Supply_chain_attack) that exploit newly-published malicious versions.
 
 ## Usage
