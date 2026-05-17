@@ -86,6 +86,43 @@ Add a step to your pipeline to block deployments when a recently-published packa
   run: npx @gucchisk/minreleaseage 1d
 ```
 
+## Ignoring specific packages
+
+When you need to urgently update a package (e.g., a security vulnerability patch), you can bypass the age check for a specific version by creating a `.minreleaseage.json` file in your project root:
+
+```json
+{
+  "ignore": [
+    {
+      "package": "axios",
+      "version": "1.9.0",
+      "reason": "CVE-2026-XXXX: urgent security patch"
+    }
+  ]
+}
+```
+
+| Field | Required | Description |
+|---|---|---|
+| `package` | Yes | Package name (exact match) |
+| `version` | Yes | Version to skip the age check for (exact match) |
+| `reason` | No | Reason for ignoring (shown in output) |
+
+**How it works:**
+
+- If the **exact version** listed in the lockfile matches, the age check is skipped:
+  ```
+  Ignored: axios@1.9.0 (reason: CVE-2026-XXXX: urgent security patch)
+  ```
+- If the **package name** matches but the **version differs** (i.e., the lockfile has been updated to a newer version), a warning is printed to remind you to clean up the ignore entry:
+  ```
+  Warning: axios@1.9.0 is listed in .minreleaseage.json ignore list, but 1.9.1 is installed. Consider removing the ignore entry.
+  ```
+  The age check proceeds normally for the installed version.
+- If the package is not in the lockfile at all, the ignore entry is silently ignored.
+
+This design means the ignore entry **self-expires** once you update to a different version — no need to remember to remove it.
+
 ## Programmatic API
 
 ```js

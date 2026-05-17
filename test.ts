@@ -8,7 +8,7 @@ import * as path from 'node:path';
 import https = require('https');
 import { EventEmitter } from 'events';
 
-import { readPackageLock, readYarnLock, readPnpmLock, fetchReleaseDate, validateRegistryUrl } from './src/index';
+import { readPackageLock, readYarnLock, readPnpmLock, fetchReleaseDate, validateRegistryUrl, readIgnoreConfig } from './src/index';
 
 // ---------------------------------------------------------------------------
 // ヘルパー
@@ -1010,3 +1010,121 @@ describe('validateRegistryUrl', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// readIgnoreConfig
+// ---------------------------------------------------------------------------
+
+describe('readIgnoreConfig', () => {
+  it('.minreleaseage.json が存在しない場合は空配列を返す', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minreleaseage-test-'));
+    try {
+      const entries = readIgnoreConfig(tmpDir);
+      assert.deepEqual(entries, []);
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  it('正常なエントリをパースして返す', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minreleaseage-test-'));
+    fs.writeFileSync(
+      path.join(tmpDir, '.minreleaseage.json'),
+      JSON.stringify({
+        ignore: [
+          { package: 'axios', version: '1.9.0', reason: 'CVE-2026-XXXX' },
+          { package: 'lodash', version: '4.17.21' },
+        ],
+      }),
+      'utf8'
+    );
+    try {
+      const entries = readIgnoreConfig(tmpDir);
+      assert.equal(entries.length, 2);
+      assert.deepEqual(entries[0], { package: 'axios', version: '1.9.0', reason: 'CVE-2026-XXXX' });
+      assert.deepEqual(entries[1], { package: 'lodash', version: '4.17.21' });
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  it('package フィールドが欠落したエントリはエラーをスローする', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minreleaseage-test-'));
+    fs.writeFileSync(
+      path.join(tmpDir, '.minreleaseage.json'),
+      JSON.stringify({ ignore: [{ version: '1.0.0' }] }),
+      'utf8'
+    );
+    try {
+      assert.throws(
+        () => readIgnoreConfig(tmpDir),
+        /ignore\[0\] must have a "package" string field/
+      );
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  it('version フィールドが欠落したエントリはエラーをスローする', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minreleaseage-test-'));
+    fs.writeFileSync(
+      path.join(tmpDir, '.minreleaseage.json'),
+      JSON.stringify({ ignore: [{ package: 'axios' }] }),
+      'utf8'
+    );
+    try {
+      assert.throws(
+        () => readIgnoreConfig(tmpDir),
+        /ignore\[0\] must have a "version" string field/
+      );
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  it('ignore フィールドが配列でない場合はエラーをスローする', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minreleaseage-test-'));
+    fs.writeFileSync(
+      path.join(tmpDir, '.minreleaseage.json'),
+      JSON.stringify({ ignore: 'invalid' }),
+      'utf8'
+    );
+    try {
+      assert.throws(
+        () => readIgnoreConfig(tmpDir),
+        /must have an "ignore" array/
+      );
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  it('JSONパースに失敗した場合はエラーをスローする', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minreleaseage-test-'));
+    fs.writeFileSync(path.join(tmpDir, '.minreleaseage.json'), 'not json', 'utf8');
+    try {
+      assert.throws(
+        () => readIgnoreConfig(tmpDir),
+        /Failed to parse \.minreleaseage\.json/
+      );
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+
+  it('エントリがオブジェクトでない場合はエラーをスローする', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minreleaseage-test-'));
+    fs.writeFileSync(
+      path.join(tmpDir, '.minreleaseage.json'),
+      JSON.stringify({ ignore: ['not-an-object'] }),
+      'utf8'
+    );
+    try {
+      assert.throws(
+        () => readIgnoreConfig(tmpDir),
+        /ignore\[0\] must be an object/
+      );
+    } finally {
+      removeTempDir(tmpDir);
+    }
+  });
+});

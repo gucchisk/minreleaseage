@@ -62,6 +62,7 @@ dist/cli.js（CLI引数パース: <age> [--dir <path>]、parseDurationToHours() 
 - **スコープ付きパッケージ**: `@scope/name` 形式は `/` を `%2F` にエンコードして registry に問い合わせる
 - **重複排除**: `name@version` をキーにした `Map` で同名・同バージョンを1つに集約
 - **終了コード**: 問題なし → `exit(0)`、古さ不足パッケージあり → `exit(1)`、不正なレジストリURL → `exit(1)`
+- **除外設定**: プロジェクトルートの `.minreleaseage.json` でバージョン指定により特定パッケージを除外可能（詳細は README 参照）
 - **レジストリURL解決**: lockfile種別により取得元が異なる（下表）。フェッチ開始前に全パッケージのレジストリURLを一括検証し、HTTPS以外・IPアドレス指定は即 `exit(1)` で終了
 
   | lockfile | 取得元 |

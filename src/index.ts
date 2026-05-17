@@ -17,6 +17,12 @@ interface TooNewPackage {
   releasedAt: string;
 }
 
+export interface IgnoreEntry {
+  package: string;
+  version: string;
+  reason?: string;
+}
+
 const DEFAULT_REGISTRY = 'https://registry.npmjs.org';
 
 // resolved URL (e.g. https://my-registry.com/path/pkgname/-/pkgname-1.0.0.tgz) から
@@ -488,6 +494,40 @@ export function readPnpmLock(lockfilePath: string): Package[] {
   return parsePnpmLock(content, registryUrl);
 }
 
+export function readIgnoreConfig(dir: string): IgnoreEntry[] {
+  const configPath = path.join(dir, '.minreleaseage.json');
+  if (!fs.existsSync(configPath)) return [];
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  } catch (e) {
+    throw new Error(`Failed to parse .minreleaseage.json: ${(e as Error).message}`);
+  }
+
+  if (typeof raw !== 'object' || raw === null || !Array.isArray((raw as Record<string, unknown>).ignore)) {
+    throw new Error('.minreleaseage.json must have an "ignore" array');
+  }
+
+  const entries: IgnoreEntry[] = [];
+  for (const [index, item] of (raw as { ignore: unknown[] }).ignore.entries()) {
+    if (typeof item !== 'object' || item === null) {
+      throw new Error(`.minreleaseage.json ignore[${index}] must be an object`);
+    }
+    const { package: pkg, version, reason } = item as Record<string, unknown>;
+    if (typeof pkg !== 'string') {
+      throw new Error(`.minreleaseage.json ignore[${index}] must have a "package" string field`);
+    }
+    if (typeof version !== 'string') {
+      throw new Error(`.minreleaseage.json ignore[${index}] must have a "version" string field`);
+    }
+    const entry: IgnoreEntry = { package: pkg, version };
+    if (typeof reason === 'string') entry.reason = reason;
+    entries.push(entry);
+  }
+  return entries;
+}
+
 async function runWithConcurrencyLimit<T, R>(
   items: T[],
   concurrency: number,
@@ -532,6 +572,20 @@ export async function checkPackageAges(minAgeHours: number, targetDir?: string):
     process.exit(0);
   }
 
+  let ignoreEntries: IgnoreEntry[];
+  try {
+    ignoreEntries = readIgnoreConfig(cwd);
+  } catch (err) {
+    process.stderr.write(`Error: ${(err as Error).message}\n`);
+    process.exit(1);
+  }
+  const ignoredByExactVersion = new Map<string, IgnoreEntry>();
+  const ignoredPackageNames = new Set<string>();
+  for (const entry of ignoreEntries) {
+    ignoredByExactVersion.set(`${entry.package}@${entry.version}`, entry);
+    ignoredPackageNames.add(entry.package);
+  }
+
   // フェッチ開始前に全パッケージのレジストリURLを検証する
   const seenRegistryUrls = new Set<string>();
   for (const pkg of packages) {
@@ -556,6 +610,22 @@ export async function checkPackageAges(minAgeHours: number, targetDir?: string):
 
   await runWithConcurrencyLimit(packages, CONCURRENCY, async (pkg) => {
     const { name, version, registryUrl } = pkg;
+
+    const exactKey = `${name}@${version}`;
+    if (ignoredByExactVersion.has(exactKey)) {
+      const entry = ignoredByExactVersion.get(exactKey)!;
+      const reasonSuffix = entry.reason ? ` (reason: ${entry.reason})` : '';
+      process.stdout.write(`Ignored: ${exactKey}${reasonSuffix}\n`);
+      return;
+    }
+
+    if (ignoredPackageNames.has(name)) {
+      const entry = [...ignoredByExactVersion.values()].find((e) => e.package === name)!;
+      process.stderr.write(
+        `Warning: ${name}@${entry.version} is listed in .minreleaseage.json ignore list, but ${version} is installed. Consider removing the ignore entry.\n`
+      );
+    }
+
     let releaseDate: Date;
     try {
       releaseDate = await fetchReleaseDate(name, version, registryUrl);
