@@ -200,6 +200,137 @@ describe('pnpm-lock.yaml (integration)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// .minreleaseage.json（ignore 設定）
+// ---------------------------------------------------------------------------
+
+describe('.minreleaseage.json (integration)', () => {
+  const npmLockSrc = path.join(__dirname, 'testdata', 'npm', 'package-lock.json');
+
+  it('完全一致バージョンのパッケージが除外され stdout に Ignored: が表示される', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minreleaseage-e2e-'));
+    try {
+      fs.copyFileSync(npmLockSrc, path.join(tmpDir, 'package-lock.json'));
+      fs.writeFileSync(
+        path.join(tmpDir, '.minreleaseage.json'),
+        JSON.stringify({ ignore: [{ package: 'axios', version: '1.15.2', reason: 'test reason' }] }),
+        'utf8'
+      );
+      const result = runCLI(tmpDir, '0');
+      assert.equal(result.status, 0, `stderr: ${result.stderr}`);
+      assert.ok(result.stdout.includes('Ignored: axios@1.15.2'), `stdout: ${result.stdout}`);
+      assert.ok(result.stdout.includes('test reason'), `stdout: ${result.stdout}`);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  it('reason なしの完全一致バージョンは reason サフィックスなしで除外される', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minreleaseage-e2e-'));
+    try {
+      fs.copyFileSync(npmLockSrc, path.join(tmpDir, 'package-lock.json'));
+      fs.writeFileSync(
+        path.join(tmpDir, '.minreleaseage.json'),
+        JSON.stringify({ ignore: [{ package: 'axios', version: '1.15.2' }] }),
+        'utf8'
+      );
+      const result = runCLI(tmpDir, '0');
+      assert.equal(result.status, 0, `stderr: ${result.stderr}`);
+      assert.ok(result.stdout.includes('Ignored: axios@1.15.2'), `stdout: ${result.stdout}`);
+      assert.ok(!result.stdout.includes('reason'), `stdout should not include "reason": ${result.stdout}`);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  it('バージョンが異なる場合は stderr に Warning: が出力され通常チェックを続行する', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minreleaseage-e2e-'));
+    try {
+      fs.copyFileSync(npmLockSrc, path.join(tmpDir, 'package-lock.json'));
+      fs.writeFileSync(
+        path.join(tmpDir, '.minreleaseage.json'),
+        JSON.stringify({ ignore: [{ package: 'axios', version: '999.0.0', reason: 'stale entry' }] }),
+        'utf8'
+      );
+      const result = runCLI(tmpDir, '0');
+      assert.equal(result.status, 0, `stderr: ${result.stderr}`);
+      assert.ok(result.stderr.includes('Warning:'), `stderr: ${result.stderr}`);
+      assert.ok(result.stderr.includes('axios@999.0.0'), `stderr: ${result.stderr}`);
+      assert.ok(result.stderr.includes('1.15.2'), `stderr: ${result.stderr}`);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  it('JSONパース失敗の場合 exit(1) でエラー終了する', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minreleaseage-e2e-'));
+    try {
+      fs.copyFileSync(npmLockSrc, path.join(tmpDir, 'package-lock.json'));
+      fs.writeFileSync(path.join(tmpDir, '.minreleaseage.json'), 'not valid json', 'utf8');
+      const result = runCLI(tmpDir, '0');
+      assert.equal(result.status, 1, `stdout: ${result.stdout}`);
+      assert.ok(result.stderr.includes('Error:'), `stderr: ${result.stderr}`);
+      assert.ok(result.stderr.includes('Failed to parse .minreleaseage.json'), `stderr: ${result.stderr}`);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  it('ignore フィールドが配列でない場合 exit(1) でエラー終了する', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minreleaseage-e2e-'));
+    try {
+      fs.copyFileSync(npmLockSrc, path.join(tmpDir, 'package-lock.json'));
+      fs.writeFileSync(
+        path.join(tmpDir, '.minreleaseage.json'),
+        JSON.stringify({ ignore: 'invalid' }),
+        'utf8'
+      );
+      const result = runCLI(tmpDir, '0');
+      assert.equal(result.status, 1, `stdout: ${result.stdout}`);
+      assert.ok(result.stderr.includes('Error:'), `stderr: ${result.stderr}`);
+      assert.ok(result.stderr.includes('"ignore" array'), `stderr: ${result.stderr}`);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  it('package フィールドが欠落したエントリがある場合 exit(1) でエラー終了する', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minreleaseage-e2e-'));
+    try {
+      fs.copyFileSync(npmLockSrc, path.join(tmpDir, 'package-lock.json'));
+      fs.writeFileSync(
+        path.join(tmpDir, '.minreleaseage.json'),
+        JSON.stringify({ ignore: [{ version: '1.0.0' }] }),
+        'utf8'
+      );
+      const result = runCLI(tmpDir, '0');
+      assert.equal(result.status, 1, `stdout: ${result.stdout}`);
+      assert.ok(result.stderr.includes('Error:'), `stderr: ${result.stderr}`);
+      assert.ok(result.stderr.includes('"package"'), `stderr: ${result.stderr}`);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  it('version フィールドが欠落したエントリがある場合 exit(1) でエラー終了する', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minreleaseage-e2e-'));
+    try {
+      fs.copyFileSync(npmLockSrc, path.join(tmpDir, 'package-lock.json'));
+      fs.writeFileSync(
+        path.join(tmpDir, '.minreleaseage.json'),
+        JSON.stringify({ ignore: [{ package: 'axios' }] }),
+        'utf8'
+      );
+      const result = runCLI(tmpDir, '0');
+      assert.equal(result.status, 1, `stdout: ${result.stdout}`);
+      assert.ok(result.stderr.includes('Error:'), `stderr: ${result.stderr}`);
+      assert.ok(result.stderr.includes('"version"'), `stderr: ${result.stderr}`);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 不正なレジストリURL
 // ---------------------------------------------------------------------------
 
