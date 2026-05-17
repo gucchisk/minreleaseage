@@ -580,10 +580,15 @@ export async function checkPackageAges(minAgeHours: number, targetDir?: string):
     process.exit(1);
   }
   const ignoredByExactVersion = new Map<string, IgnoreEntry>();
-  const ignoredPackageNames = new Set<string>();
+  const ignoredByPackageName = new Map<string, IgnoreEntry[]>();
   for (const entry of ignoreEntries) {
     ignoredByExactVersion.set(`${entry.package}@${entry.version}`, entry);
-    ignoredPackageNames.add(entry.package);
+    const existing = ignoredByPackageName.get(entry.package);
+    if (existing) {
+      existing.push(entry);
+    } else {
+      ignoredByPackageName.set(entry.package, [entry]);
+    }
   }
 
   // フェッチ開始前に全パッケージのレジストリURLを検証する
@@ -607,6 +612,7 @@ export async function checkPackageAges(minAgeHours: number, targetDir?: string):
   const tooNewPackages: TooNewPackage[] = [];
 
   const CONCURRENCY = 10;
+  const warnedPackageNames = new Set<string>();
 
   await runWithConcurrencyLimit(packages, CONCURRENCY, async (pkg) => {
     const { name, version, registryUrl } = pkg;
@@ -619,10 +625,12 @@ export async function checkPackageAges(minAgeHours: number, targetDir?: string):
       return;
     }
 
-    if (ignoredPackageNames.has(name)) {
-      const entry = [...ignoredByExactVersion.values()].find((e) => e.package === name)!;
+    const staleEntries = ignoredByPackageName.get(name);
+    if (staleEntries && !warnedPackageNames.has(name)) {
+      warnedPackageNames.add(name);
+      const ignoredVersions = staleEntries.map((e) => e.version).join(', ');
       process.stderr.write(
-        `Warning: ${name}@${entry.version} is listed in .minreleaseage.json ignore list, but ${version} is installed. Consider removing the ignore entry.\n`
+        `Warning: ${name}@${ignoredVersions} is listed in .minreleaseage.json ignore list, but ${version} is installed. Consider removing the ignore entry.\n`
       );
     }
 
