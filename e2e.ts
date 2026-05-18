@@ -261,6 +261,63 @@ describe('.minreleaseage.json (integration)', () => {
     }
   });
 
+  it('同一パッケージ名に複数の ignore エントリがある場合、Warning は1行にまとめられ全バージョンが列挙される', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minreleaseage-e2e-'));
+    try {
+      fs.copyFileSync(npmLockSrc, path.join(tmpDir, 'package-lock.json'));
+      fs.writeFileSync(
+        path.join(tmpDir, '.minreleaseage.json'),
+        JSON.stringify({ ignore: [
+          { package: 'axios', version: '1.0.0' },
+          { package: 'axios', version: '2.0.0' },
+        ] }),
+        'utf8'
+      );
+      const result = runCLI(tmpDir, '0');
+      assert.equal(result.status, 0, `stderr: ${result.stderr}`);
+      const warningLines = result.stderr.split('\n').filter((l) => l.includes('Warning:'));
+      assert.equal(warningLines.length, 1, `Warning は1行のみであること: ${result.stderr}`);
+      assert.ok(warningLines[0].includes('1.0.0'), `Warning に 1.0.0 が含まれること: ${warningLines[0]}`);
+      assert.ok(warningLines[0].includes('2.0.0'), `Warning に 2.0.0 が含まれること: ${warningLines[0]}`);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  it('同一パッケージ名が lockfile に複数バージョン存在する場合、Warning は1回のみ出力される', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minreleaseage-e2e-'));
+    try {
+      fs.writeFileSync(
+        path.join(tmpDir, 'package-lock.json'),
+        JSON.stringify({
+          lockfileVersion: 3,
+          packages: {
+            'node_modules/axios': {
+              version: '1.15.2',
+              resolved: 'https://registry.npmjs.org/axios/-/axios-1.15.2.tgz',
+            },
+            'node_modules/some-dep/node_modules/axios': {
+              version: '1.15.0',
+              resolved: 'https://registry.npmjs.org/axios/-/axios-1.15.0.tgz',
+            },
+          },
+        }),
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(tmpDir, '.minreleaseage.json'),
+        JSON.stringify({ ignore: [{ package: 'axios', version: '999.0.0' }] }),
+        'utf8'
+      );
+      const result = runCLI(tmpDir, '0');
+      assert.equal(result.status, 0, `stderr: ${result.stderr}`);
+      const warningLines = result.stderr.split('\n').filter((l) => l.includes('Warning:'));
+      assert.equal(warningLines.length, 1, `Warning は重複せず1行のみであること: ${result.stderr}`);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
   it('JSONパース失敗の場合 exit(1) でエラー終了する', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minreleaseage-e2e-'));
     try {
